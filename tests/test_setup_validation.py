@@ -39,6 +39,7 @@ def test_httpx_client_importable_and_constructible() -> None:
     client.close()
 
 
+@pytest.mark.requires_all_browsers
 @pytest.mark.parametrize("engine_name", ["chromium", "firefox", "webkit"])
 def test_playwright_browser_launches(engine_name: str, playwright: Playwright) -> None:
     """Each browser engine approved in docs/05 §9 / docs/10 §17 actually launches.

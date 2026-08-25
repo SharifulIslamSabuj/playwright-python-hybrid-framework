@@ -1,0 +1,21 @@
+# .dockerignore — keeps the build context minimal and, critically, keeps
+# secrets and host-only artifacts out of the image (docs/20-Dockerization.md
+# §2/§9). This is the actual enforcement mechanism behind "never bake a
+# credential into the image" — not just a documented convention.
+
+.git/
+.venv/
+venv/
+env/
+.pytest_cache/
+__pycache__/
+*.pyc
+reports/*
+.env
+.env.local
+.env.*.local
+.vscode/
+.idea/
+test-results/
+playwright-report/
+.playwright/

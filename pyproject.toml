@@ -35,6 +35,7 @@ markers = [
     "regression: full approved automation-scope regression set",
     "ci_restricted: state-mutating tests throttled to MAIN/NIGHTLY tiers only, never PR (see docs/09-Automation-Scope.md §6)",
     "cross_browser: tests in the curated cross-browser subset (see docs/10-Automation-Strategy.md §17)",
+    "requires_all_browsers: one-time infrastructure checks that need every browser engine installed in the same job — excluded from CI Tier 1 (Chromium-only in every job/leg); runs by default locally",
 ]
 
 # Fail the run on any marker not registered above, so a typo'd or
@@ -59,11 +60,24 @@ markers = [
 #   --html / --self-contained-html   the approved baseline report
 #                           (docs/10 §25, ADR-3) — overwritten each local
 #                           run; CI will pass a run-specific path instead.
+#   --output=reports/artifacts   redirects pytest-playwright's own failure
+#                           artifacts (screenshot/trace/video, written together
+#                           per test) here instead of its "test-results"
+#                           default — discovered during whole-project runtime
+#                           validation to be genuinely unset before this change,
+#                           so artifacts never reached the documented reports/
+#                           tree. One unified directory per test, not split
+#                           into separate screenshots/traces/videos
+#                           subdirectories — pytest-playwright has no native
+#                           per-type split; settings.py's three separate
+#                           *_dir properties remain as computed values,
+#                           unchanged, not yet wired to this flag.
 addopts = """
     --strict-markers
     --browser=chromium
     --screenshot=only-on-failure
     --tracing=retain-on-failure
+    --output=reports/artifacts
     --html=reports/html/report.html
     --self-contained-html
 """

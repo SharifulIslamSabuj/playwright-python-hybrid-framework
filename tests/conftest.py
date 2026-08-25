@@ -19,7 +19,10 @@ Clients, not the other way around).
 
 from __future__ import annotations
 
+import os
+import re
 from collections.abc import Generator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -185,3 +188,170 @@ def created_account_cleanup(auth_api: AuthApiClient) -> Generator[list[dict[str,
             # the test (matches the TS project's own AE-TC-API-007 pattern,
             # docs/05-Test-Strategy.md §29 REFERENCE KNOWLEDGE).
             _logger.exception("Cleanup FAILED for account %s — requires manual follow-up", account["email"])
+
+
+# ---------------------------------------------------------------------------
+# Reporting & Observability (docs/21-Reporting-Observability.md, implementing
+# the two docs/10-Automation-Strategy.md §25 requirements the baseline
+# pytest-html/pytest-metadata setup did not yet satisfy: Test Case ID
+# traceability visible in the report, and execution-platform/environment
+# metadata identifying which CI tier/trigger produced a given report).
+#
+# Hook APIs verified directly against the installed packages' own source
+# (.venv/Lib/site-packages/pytest_html/hooks.py,
+# .venv/Lib/site-packages/pytest_metadata/hooks.py) rather than assumed.
+# No test file is modified, and no existing docstring is rewritten — these
+# hooks only read what each test already documents (docs/11 §28's existing
+# "Test Case: AE-*-TC-*" docstring convention).
+# ---------------------------------------------------------------------------
+
+_TEST_CASE_ID_PATTERN = re.compile(r"Test Case:\s*(AE-[\w-]*?TC-\d+)")
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> Generator[None, Any, None]:
+    """Captures each test's Test Case ID (parsed from its existing docstring)
+    onto the report object, so `pytest_html_results_table_row` below can
+    render it without re-parsing source at report-generation time. Runs for
+    every collected item, including the 2 infrastructure test files that
+    carry no `AE-*-TC-*` docstring — those simply produce no match, handled
+    gracefully as an empty string (rendered as "N/A" in the row hook), never
+    an error."""
+    outcome = yield
+    report = outcome.get_result()
+    docstring = getattr(getattr(item, "function", None), "__doc__", None) or ""
+    match = _TEST_CASE_ID_PATTERN.search(docstring)
+    report.test_case_id = match.group(1) if match else ""
+
+
+def pytest_html_results_table_header(cells: list[str]) -> None:
+    """Adds a 'Test Case ID' column immediately after the existing 'Test'
+    column (index 2 of the 4 default columns: Result, Test, Duration,
+    Links — verified against pytest_html/report_data.py's own default
+    header list, not assumed)."""
+    cells.insert(2, "<th>Test Case ID</th>")
+
+
+_ARTIFACT_ROOT = Path("reports/artifacts")
+_HTML_REPORT_DIR = Path("reports/html")
+
+
+def _normalize(text: str) -> str:
+    """Lowercase, alphanumeric-only normalization — used to match a pytest
+    nodeid against a pytest-playwright artifact folder name without
+    depending on pytest-playwright's own private slugification algorithm
+    (per instruction). Empirically verified: pytest-playwright's folder name
+    is the nodeid with every separator character (/, ::, ., _, [, ]) replaced
+    by '-' — stripping all non-alphanumeric characters from both sides
+    yields the same string regardless of which separator character it used."""
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def _find_artifact_dir(nodeid: str) -> Path | None:
+    """Locates the artifact directory pytest-playwright wrote for this test
+    under the configured --output directory (reports/artifacts, per
+    pyproject.toml), using the robust normalization above rather than any
+    private internal. Returns None if no matching directory exists —
+    handled gracefully by the caller, never raised."""
+    if not _ARTIFACT_ROOT.is_dir():
+        return None
+    target = _normalize(nodeid)
+    for candidate in _ARTIFACT_ROOT.iterdir():
+        if not candidate.is_dir():
+            continue
+        normalized_candidate = _normalize(candidate.name)
+        if normalized_candidate == target or target.startswith(normalized_candidate):
+            return candidate
+    return None
+
+
+def pytest_html_results_table_row(report: pytest.TestReport, cells: list[str]) -> None:
+    """Renders the Test Case ID captured above into the corresponding row
+    cell, at the same index the header hook inserted its column. Gracefully
+    shows 'N/A' for the 2 infrastructure test files (no business Test Case
+    ID applies to them) rather than failing.
+
+    Also links any real screenshot/trace evidence pytest-playwright wrote
+    for a failed test (docs/21-Reporting-Observability.md follow-up,
+    identified during whole-project runtime validation: the capture
+    mechanism already worked, but nothing ever linked it from the report).
+    Reuses this same existing hook rather than adding a second reporting
+    mechanism. Never raises — a missing/unmatched artifact directory simply
+    leaves the Links column as pytest-html's own default (usually empty),
+    exactly as before this change."""
+    if report.failed:
+        artifact_dir = _find_artifact_dir(report.nodeid)
+        if artifact_dir is not None:
+            links = "".join(
+                f'<a href="{os.path.relpath(f, _HTML_REPORT_DIR).replace(os.sep, "/")}" '
+                f'target="_blank">{f.name}</a> '
+                for f in sorted(artifact_dir.iterdir())
+                if f.is_file()
+            )
+            if links:
+                cells[-1] = f'<td class="col-links">{links}</td>'
+
+    test_case_id = getattr(report, "test_case_id", "") or "N/A"
+    cells.insert(2, f'<td class="col-testcaseid">{test_case_id}</td>')
+
+
+def _detect_execution_platform() -> str:
+    """Derives which platform produced this run from standard environment
+    signals each platform injects automatically, with no change to any of
+    the three existing CI/CD files or the Dockerfile:
+      - GitHub Actions always sets `GITHUB_ACTIONS=true` (GitHub Docs,
+        "Variables reference").
+      - Jenkins always sets `JENKINS_URL`/`BUILD_NUMBER` for every job.
+      - Azure DevOps always sets `TF_BUILD=True` (Microsoft Learn,
+        "Predefined variables").
+      - Docker creates `/.dockerenv` inside every container — the
+        standard, widely-used in-container detection marker.
+    A CI-platform signal takes priority over the Docker signal: "which CI
+    tier/trigger produced this" (docs/10 §25) is the more specific fact
+    when a CI job also happens to execute inside a container."""
+    if os.environ.get("GITHUB_ACTIONS"):
+        return "GitHub Actions"
+    if os.environ.get("JENKINS_URL") or os.environ.get("BUILD_NUMBER"):
+        return "Jenkins"
+    if os.environ.get("TF_BUILD"):
+        return "Azure DevOps"
+    if os.path.exists("/.dockerenv"):
+        return "Docker"
+    return "Local"
+
+
+def pytest_metadata(metadata: dict, config: pytest.Config) -> None:
+    """Adds the docs/10 §25 'which CI tier/trigger produced the result'
+    field to pytest-metadata's Environment table — the one piece the
+    baseline setup (Python/Platform/Packages/Base URL) did not provide.
+    Jenkins' own raw BUILD_NUMBER/JOB_NAME/etc. are already surfaced
+    automatically by pytest-metadata's built-in Jenkins CI detection
+    (pytest_metadata/ci/jenkins.py) — not duplicated here. GitHub Actions
+    and Azure DevOps have no built-in pytest-metadata CI detection, so
+    their commonly useful trigger/run fields are added explicitly, using
+    only variable names verified against each platform's own current
+    documentation."""
+    platform_name = _detect_execution_platform()
+    metadata["Execution Platform"] = platform_name
+
+    if platform_name == "GitHub Actions":
+        for label, env_name in (
+            ("GitHub Workflow", "GITHUB_WORKFLOW"),
+            ("GitHub Event", "GITHUB_EVENT_NAME"),
+            ("GitHub Ref", "GITHUB_REF_NAME"),
+            ("GitHub Run ID", "GITHUB_RUN_ID"),
+        ):
+            value = os.environ.get(env_name)
+            if value:
+                metadata[label] = value
+
+    elif platform_name == "Azure DevOps":
+        for label, env_name in (
+            ("Azure Build ID", "BUILD_BUILDID"),
+            ("Azure Build Reason", "BUILD_REASON"),
+            ("Azure Agent Name", "AGENT_NAME"),
+            ("Azure Source Branch", "BUILD_SOURCEBRANCH"),
+        ):
+            value = os.environ.get(env_name)
+            if value:
+                metadata[label] = value

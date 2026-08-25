@@ -79,7 +79,7 @@ jobs:
       # health checks, not business Test Cases — run by path, not marker,
       # since they intentionally carry no business-tier marker.
       - name: Framework foundation checks (Tier 1)
-        run: python -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v
+        run: python -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v -m "not requires_all_browsers"
 
       # CI-only bounded retries (docs/10 §16, docs/11 §30: mirrors the
       # cited {ci: 2, local: 0} precedent). Never configured as the local
@@ -138,7 +138,7 @@ jobs:
         run: python -m playwright install --with-deps chromium
 
       - name: Framework foundation checks (Tier 1)
-        run: python -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v
+        run: python -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v -m "not requires_all_browsers"
 
       - name: Full regression suite, including CI-RESTRICTED tier (Chromium)
         run: >
@@ -189,7 +189,7 @@ jobs:
 
       - name: Framework foundation checks (Tier 1, Chromium leg only)
         if: matrix.browser == 'chromium'
-        run: python -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v
+        run: python -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v -m "not requires_all_browsers"
 
       - name: Full regression suite (Chromium leg only)
         if: matrix.browser == 'chromium'

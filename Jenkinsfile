@@ -115,7 +115,7 @@ pipeline {
                 expression { return params.RUN_FOUNDATION_CHECKS }
             }
             steps {
-                sh 'python3 -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v'
+                sh 'python3 -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v -m "not requires_all_browsers"'
             }
         }
 

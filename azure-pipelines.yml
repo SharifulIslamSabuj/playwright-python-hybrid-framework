@@ -99,7 +99,7 @@ stages:
             displayName: 'Install Playwright browser (${{ parameters.browser }})'
 
           - ${{ if eq(parameters.runFoundationChecks, true) }}:
-              - script: python -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v
+              - script: python -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v -m "not requires_all_browsers"
                 displayName: 'Framework foundation checks (Tier 1)'
 
           # CI-only bounded retries (docs/10 §16, docs/11 §30: the cited
