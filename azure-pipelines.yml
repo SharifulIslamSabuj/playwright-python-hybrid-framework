@@ -1,0 +1,146 @@
+# azure-pipelines.yml — implements the same docs/10-Automation-Strategy.md
+# §18/§19/§21/§22 and docs/11-Framework-Architecture.md §27/§29/§30/§31
+# design that .github/workflows/ci.yml and Jenkinsfile already implement,
+# on a third CI/CD platform, per the QA-Lead-approved Step 19 three-platform
+# scope (docs/19-CI-CD.md).
+#
+# Runs the SAME Python + Playwright + Pytest framework and the SAME 22
+# currently implemented, approved automated Test Cases as GitHub Actions
+# and Jenkins — no test logic is duplicated or forked for Azure DevOps;
+# this file only orchestrates the existing tests/ suite via the pytest
+# markers already registered in pyproject.toml.
+#
+# ASSUMPTIONS (this file does not assume an Azure DevOps organization,
+# project, service connection, or agent pool already exists — docs/19-CI-CD.md
+# records its status as "Implemented locally / Externally executed: NO"):
+#   - Runs on a Microsoft-hosted `ubuntu-latest` agent (no self-hosted
+#     agent, no service connection, no pre-provisioned pool referenced).
+#   - Durable test-account credentials (docs/09-Automation-Scope.md §12/§30
+#     item 4) are deliberately NOT wired via an Azure DevOps variable group
+#     or secret variable here: doing so would reference a library/group
+#     that does not exist in any Azure DevOps project, since none has been
+#     configured for this project (per instruction: do not invent Azure
+#     DevOps organizations/projects/service connections). No currently
+#     implemented test consumes them regardless (only the 9 blocked cases
+#     would). Left unset, matching Settings' safe empty default and the
+#     still-open BLK-001/BLK-002 blockers (docs/18-Defect-Documentation.md §7).
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    exclude:
+      - docs/*
+      - '*.md'
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+parameters:
+  # Mirrors the marker-expression selection already used by
+  # .github/workflows/ci.yml and Jenkinsfile. Can only filter WITHIN the
+  # existing, already-collected 50-test suite via the 8 markers already
+  # registered in pyproject.toml (docs/11 §27) — cannot introduce new test
+  # scope by construction.
+  - name: markerExpression
+    displayName: 'pytest -m expression'
+    type: string
+    default: 'regression and not ci_restricted'
+  - name: browser
+    displayName: 'Playwright browser'
+    type: string
+    default: 'chromium'
+    values:
+      - chromium
+      - firefox
+      - webkit
+  - name: runFoundationChecks
+    displayName: 'Run Tier 1 framework foundation checks'
+    type: boolean
+    default: true
+
+variables:
+  # Public AUT URLs, not secrets — matches .env.example.
+  AUT_BASE_URL: 'https://automationexercise.com'
+  API_BASE_URL: 'https://automationexercise.com'
+  pythonVersion: '3.14'
+
+stages:
+  - stage: Regression
+    displayName: 'Approved Automated Regression Suite'
+    jobs:
+      - job: Regression
+        displayName: 'Run pytest (${{ parameters.browser }})'
+        timeoutInMinutes: 30
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(pythonVersion)'
+            displayName: 'Set up Python $(pythonVersion)'
+
+          # Single source of truth: pyproject.toml's [project.dependencies].
+          # No [build-system] table exists (the project is not packaged),
+          # so dependencies are read directly with the stdlib tomllib
+          # (Python 3.11+) rather than duplicating the pinned version list
+          # into this file — identical technique to .github/workflows/ci.yml
+          # and Jenkinsfile.
+          - script: |
+              python -m pip install --upgrade pip
+              pip install $(python -c "import tomllib; print(' '.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))")
+            displayName: 'Install dependencies'
+
+          - script: python -m playwright install --with-deps ${{ parameters.browser }}
+            displayName: 'Install Playwright browser (${{ parameters.browser }})'
+
+          - ${{ if eq(parameters.runFoundationChecks, true) }}:
+              - script: python -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v
+                displayName: 'Framework foundation checks (Tier 1)'
+
+          # CI-only bounded retries (docs/10 §16, docs/11 §30: the cited
+          # {ci: 2, local: 0} precedent) — identical policy and values to
+          # .github/workflows/ci.yml and Jenkinsfile. No parallel-worker
+          # flag, for the same durable "favor reliability over speed
+          # against a single shared public AUT" reasoning (docs/10 §21,
+          # docs/11 §29), reinforced by the network instability documented
+          # as OBS-001 (docs/18-Defect-Documentation.md).
+          #
+          # A non-zero pytest exit code fails this script step by default
+          # (continueOnError is not set), which fails the job/pipeline —
+          # native Azure DevOps failure propagation, no custom handling
+          # needed.
+          - script: |
+              python -m pytest -m "${{ parameters.markerExpression }}" --browser=${{ parameters.browser }} \
+                --reruns 2 --reruns-delay 3 -v \
+                --html=reports/html/regression-azure.html --self-contained-html
+            displayName: 'Approved automated regression suite'
+
+          # Evidence preserved regardless of outcome (docs/10 §15/§19):
+          # HTML report every run, screenshots on UI failure, traces on
+          # retry-then-fail. condition: always() so this still runs after
+          # the pytest step above fails. Logs are the job's own console
+          # output (src/utils/logger.py writes to stdout, no file handler)
+          # — already retained natively as the job's log, no separate
+          # log-file publish needed.
+          - task: PublishBuildArtifacts@1
+            condition: always()
+            inputs:
+              PathtoPublish: 'reports'
+              ArtifactName: 'regression-$(Build.BuildId)-${{ parameters.browser }}'
+              publishLocation: 'Container'
+            displayName: 'Publish test evidence (HTML report, screenshots, traces)'
+
+          # Microsoft-hosted agents are ephemeral and torn down after the
+          # job regardless — this step is an explicit, documented cleanup
+          # of the workspace's generated report artifacts rather than a
+          # functional necessity, kept for parity with the Jenkinsfile's
+          # explicit cleanup stage and docs/10 §19's artifact-handling
+          # expectations.
+          - script: rm -rf reports/html/* reports/screenshots/* reports/traces/*
+            condition: always()
+            displayName: 'Clean up local report artifacts'

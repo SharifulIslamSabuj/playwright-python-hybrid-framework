@@ -1,0 +1,69 @@
+[project]
+name = "playwright-python-hybrid-framework"
+version = "0.1.0"
+description = "Hybrid UI + API + E2E automation framework for Automation Exercise (https://automationexercise.com), built with Playwright and Python."
+requires-python = ">=3.11"
+readme = "README.md"
+
+dependencies = [
+    "playwright==1.62.0",
+    "pytest==9.1.1",
+    "pytest-playwright==0.9.0",
+    "httpx==0.28.1",
+    "pytest-html==4.2.0",
+    "python-dotenv==1.2.3",
+    "pytest-xdist==3.8.0",
+    "pytest-rerunfailures==16.6",
+]
+
+[tool.pytest.ini_options]
+# Test discovery is confined to tests/ — src/ contains framework code, not tests.
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+# Markers reflect real execution-tier distinctions already approved in
+# docs/10-Automation-Strategy.md §18 and docs/11-Framework-Architecture.md §27.
+# No marker exists without a corresponding approved need.
+markers = [
+    "smoke: fast, high-value checks confirming application/framework availability",
+    "ui: UI-layer automated tests",
+    "api: API-layer automated tests",
+    "hybrid: combined UI + API automated tests",
+    "negative: negative/error-path validation",
+    "regression: full approved automation-scope regression set",
+    "ci_restricted: state-mutating tests throttled to MAIN/NIGHTLY tiers only, never PR (see docs/09-Automation-Scope.md §6)",
+    "cross_browser: tests in the curated cross-browser subset (see docs/10-Automation-Strategy.md §17)",
+]
+
+# Fail the run on any marker not registered above, so a typo'd or
+# undocumented marker is caught immediately rather than silently accepted.
+#
+# Diagnostics/reporting defaults implement docs/10-Automation-Strategy.md §15
+# and docs/11-Framework-Architecture.md §24/§25 via pytest-playwright's own
+# CLI flags — no custom capture code needed:
+#   --browser=chromium     primary browser (docs/10 §17); override per run
+#                           for the curated cross-browser tier.
+#   --screenshot=only-on-failure   captured on every UI failure, cheap.
+#   --tracing=retain-on-failure    the closest pytest-playwright-native
+#                           equivalent to "trace on retry" — retains a trace
+#                           only for tests that end up failing (a test that
+#                           passes after a retry produces no trace either).
+#                           A literal retry-only mode would require a custom
+#                           hook beyond CLI flags; documented as an
+#                           intentional, functionally-equivalent translation
+#                           in docs/13-Core-Framework-Development.md.
+#   (video intentionally NOT enabled — docs/10 §15 deliberately withholds it
+#   by default as the one diagnostic artifact not worth its cost here.)
+#   --html / --self-contained-html   the approved baseline report
+#                           (docs/10 §25, ADR-3) — overwritten each local
+#                           run; CI will pass a run-specific path instead.
+addopts = """
+    --strict-markers
+    --browser=chromium
+    --screenshot=only-on-failure
+    --tracing=retain-on-failure
+    --html=reports/html/report.html
+    --self-contained-html
+"""

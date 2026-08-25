@@ -1,0 +1,53 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- pytest ---
+.pytest_cache/
+.cache/
+
+# --- Playwright ---
+# Downloaded browser binaries live outside the repo (~/AppData/Local/ms-playwright
+# on Windows / ~/.cache/ms-playwright on Linux/macOS), never inside it.
+test-results/
+playwright-report/
+.playwright/
+
+# --- Generated reports / execution artifacts (docs/11 §33: gitignored, output only) ---
+reports/html/*
+reports/screenshots/*
+reports/traces/*
+reports/videos/*
+!reports/html/.gitkeep
+!reports/screenshots/.gitkeep
+!reports/traces/.gitkeep
+!reports/videos/.gitkeep
+
+# --- Environment / secrets (docs/11 §37: never committed) ---
+.env
+.env.local
+.env.*.local
+
+# --- IDEs / editors ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS-generated files ---
+.DS_Store
+Thumbs.db
+desktop.ini

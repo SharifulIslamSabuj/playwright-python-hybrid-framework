@@ -1,0 +1,218 @@
+# CI/CD workflow — implements docs/10-Automation-Strategy.md §18/§19/§21/§22
+# and docs/11-Framework-Architecture.md §27/§29/§30/§31 exactly, per the
+# QA-Lead-approved Step 19 execution plan (docs/19-CI-CD.md).
+#
+# Runs ONLY the 22 currently implemented, approved automated Test Cases
+# (12 UI + 9 API + 1 Hybrid), selected via the pytest markers already
+# registered in pyproject.toml. The 9 blocked cases have no test code and
+# therefore cannot and do not appear here — no placeholder/skip entry is
+# created for them (docs/19-CI-CD.md §6).
+#
+# Docker is intentionally NOT part of this workflow — per docs/11 §44 it is
+# assigned to Step 20+, not Step 19 (docs/19-CI-CD.md §5).
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # Nightly canary run — independent of code changes, primarily surfaces
+  # environment/AUT-availability instability of the kind documented as
+  # OBS-001 in docs/18-Defect-Documentation.md (docs/10 §22).
+  schedule:
+    - cron: "0 2 * * *"
+  # Release validation is manually triggered: no git-tag/release-branch
+  # convention has been approved anywhere in docs/01-18, so a manual
+  # workflow_dispatch is used rather than inventing an automatic release
+  # trigger the project has never defined (docs/19-CI-CD.md §5).
+  workflow_dispatch: {}
+
+env:
+  AUT_BASE_URL: https://automationexercise.com
+  API_BASE_URL: https://automationexercise.com
+  # Durable test-account credentials (docs/09-Automation-Scope.md §12/§30
+  # item 4, docs/18-Defect-Documentation.md §7 BLK-001/BLK-002). Left
+  # unset here — real values only ever come from repository secrets, never
+  # hard-coded (docs/04 §10, docs/08 §23, docs/11 §37). No currently
+  # implemented test consumes these; wiring them is forward-compatible
+  # plumbing only, not an authorization bypass (docs/19-CI-CD.md §9).
+  DURABLE_VALID_USER_EMAIL: ${{ secrets.DURABLE_VALID_USER_EMAIL }}
+  DURABLE_VALID_USER_PASSWORD: ${{ secrets.DURABLE_VALID_USER_PASSWORD }}
+  DURABLE_EXISTING_USER_EMAIL: ${{ secrets.DURABLE_EXISTING_USER_EMAIL }}
+
+jobs:
+  # PR gate + Main branch regression (docs/10 §22: "Same as PR, Chromium").
+  # Selection = "regression and not ci_restricted": today this evaluates to
+  # exactly the 22 implemented cases (ci_restricted currently has zero
+  # implemented members — the 3 CI-RESTRICTED cases are all BLOCKED). The
+  # explicit exclusion is kept so this durably never runs a CI-RESTRICTED
+  # case on PR, even once those cases are eventually implemented.
+  pr_main_regression:
+    name: PR / Main Regression (Chromium)
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      # No [build-system] table exists in pyproject.toml (the project is not
+      # packaged/installable — docs/12-Project-Setup.md), so dependencies are
+      # installed directly from [project.dependencies], read with the
+      # standard-library tomllib (Python 3.11+, matches requires-python).
+      # This keeps pyproject.toml as the single source of truth instead of
+      # duplicating the pinned version list into this YAML file.
+      - name: "Install dependencies (single source of truth: pyproject.toml)"
+        run: |
+          python -m pip install --upgrade pip
+          pip install $(python -c "import tomllib; print(' '.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))")
+
+      - name: Install Playwright Chromium
+        run: python -m playwright install --with-deps chromium
+
+      # Tier 1 (docs/17-Execution-Report.md §6): infrastructure/framework
+      # health checks, not business Test Cases — run by path, not marker,
+      # since they intentionally carry no business-tier marker.
+      - name: Framework foundation checks (Tier 1)
+        run: python -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v
+
+      # CI-only bounded retries (docs/10 §16, docs/11 §30: mirrors the
+      # cited {ci: 2, local: 0} precedent). Never configured as the local
+      # default in pyproject.toml's addopts — local runs still fail fast.
+      # No -n/xdist parallelism: docs/10 §21 / docs/11 §29 durably favor
+      # reliability over speed against this single shared public AUT,
+      # reinforced by the network instability documented as OBS-001.
+      - name: Approved automated regression suite (Chromium)
+        run: >
+          python -m pytest -m "regression and not ci_restricted"
+          --reruns 2 --reruns-delay 3 -v
+          --html=reports/html/regression-chromium.html --self-contained-html
+
+      # Evidence preserved on failure regardless of which step failed
+      # (docs/10 §15/§19): HTML report every run, screenshots on UI
+      # failure, traces on retry-then-fail. Logs are the job's own console
+      # output (src/utils/logger.py writes to stdout, no file handler) —
+      # already retained natively by GitHub Actions, no separate upload.
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-main-regression-${{ github.run_id }}
+          path: |
+            reports/html/
+            reports/screenshots/
+            reports/traces/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # Nightly canary (docs/10 §22): full 31-case set including the
+  # CI-RESTRICTED pair. Today this selects the same 22 tests as the PR/Main
+  # job, since none of the 3 CI-RESTRICTED cases are implemented yet — its
+  # present value is the environment-instability canary purpose (running
+  # independent of code changes), not broader coverage. It will
+  # automatically pick up the CI-RESTRICTED cases the moment they are
+  # implemented and marked, with no workflow change required.
+  nightly_regression:
+    name: Nightly Regression (Chromium, full set)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: "Install dependencies (single source of truth: pyproject.toml)"
+        run: |
+          python -m pip install --upgrade pip
+          pip install $(python -c "import tomllib; print(' '.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))")
+
+      - name: Install Playwright Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Framework foundation checks (Tier 1)
+        run: python -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v
+
+      - name: Full regression suite, including CI-RESTRICTED tier (Chromium)
+        run: >
+          python -m pytest -m regression
+          --reruns 2 --reruns-delay 3 -v
+          --html=reports/html/regression-nightly.html --self-contained-html
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-regression-${{ github.run_id }}
+          path: |
+            reports/html/
+            reports/screenshots/
+            reports/traces/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # Release validation (docs/10 §17/§22): full Chromium regression + the
+  # curated 4-case cross-browser subset (AE-UI-TC-006/015/018/024) on
+  # Firefox and WebKit. The curated subset is NOT re-run on the chromium
+  # leg — it is already covered by that leg's full-regression pass, since
+  # every cross_browser-marked test also carries the regression marker.
+  release_validation:
+    name: Release Validation
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: "Install dependencies (single source of truth: pyproject.toml)"
+        run: |
+          python -m pip install --upgrade pip
+          pip install $(python -c "import tomllib; print(' '.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))")
+
+      - name: Install Playwright browser (${{ matrix.browser }})
+        run: python -m playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Framework foundation checks (Tier 1, Chromium leg only)
+        if: matrix.browser == 'chromium'
+        run: python -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v
+
+      - name: Full regression suite (Chromium leg only)
+        if: matrix.browser == 'chromium'
+        run: >
+          python -m pytest -m regression --browser=chromium
+          --reruns 2 --reruns-delay 3 -v
+          --html=reports/html/release-chromium.html --self-contained-html
+
+      - name: Curated cross-browser subset (${{ matrix.browser }})
+        if: matrix.browser != 'chromium'
+        run: >
+          python -m pytest -m cross_browser --browser=${{ matrix.browser }}
+          --reruns 2 --reruns-delay 3 -v
+          --html=reports/html/release-${{ matrix.browser }}.html --self-contained-html
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.browser }}-${{ github.run_id }}
+          path: |
+            reports/html/
+            reports/screenshots/
+            reports/traces/
+          retention-days: 14
+          if-no-files-found: ignore
