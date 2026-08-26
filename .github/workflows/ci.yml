@@ -105,8 +105,7 @@ jobs:
           name: pr-main-regression-${{ github.run_id }}
           path: |
             reports/html/
-            reports/screenshots/
-            reports/traces/
+            reports/artifacts/
           retention-days: 14
           if-no-files-found: ignore
 
@@ -153,8 +152,7 @@ jobs:
           name: nightly-regression-${{ github.run_id }}
           path: |
             reports/html/
-            reports/screenshots/
-            reports/traces/
+            reports/artifacts/
           retention-days: 14
           if-no-files-found: ignore
 
@@ -212,7 +210,6 @@ jobs:
           name: release-${{ matrix.browser }}-${{ github.run_id }}
           path: |
             reports/html/
-            reports/screenshots/
-            reports/traces/
+            reports/artifacts/
           retention-days: 14
           if-no-files-found: ignore
