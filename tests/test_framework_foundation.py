@@ -16,6 +16,7 @@ tied to, or could be mistaken for, any AE-UI-TC-*/AE-API-TC-*/AE-E2E-TC-* ID.
 
 from __future__ import annotations
 
+import os
 import re
 
 import pytest
@@ -52,11 +53,22 @@ def test_settings_report_paths_are_computed_correctly(settings: Settings) -> Non
     assert settings.html_report_path.as_posix().endswith("reports/html/report.html")
 
 
-def test_durable_account_availability_flags_reflect_unset_env(settings: Settings) -> None:
-    # No .env exists in this environment yet, so both must be False —
-    # proving the "never invent a value" rule (docs/09 §30 item 4) holds.
-    assert settings.has_durable_valid_account() is False
-    assert settings.has_durable_existing_account() is False
+def test_durable_account_availability_flags_reflect_environment(settings: Settings) -> None:
+    # Environment-agnostic: this project's own execution environment may or
+    # may not have durable credentials provisioned (docs/09 §30 item 4 — a
+    # human operator's own choice, never invented here). The oracle is read
+    # directly from os.environ, independently of Settings' own field
+    # population, so this genuinely checks the flag reflects the real
+    # environment rather than trivially re-deriving itself from the same
+    # two Settings fields the flag is computed from.
+    expected_valid_account = bool(
+        os.environ.get("DURABLE_VALID_USER_EMAIL")
+        and os.environ.get("DURABLE_VALID_USER_PASSWORD")
+    )
+    expected_existing_account = bool(os.environ.get("DURABLE_EXISTING_USER_EMAIL"))
+
+    assert settings.has_durable_valid_account() is expected_valid_account
+    assert settings.has_durable_existing_account() is expected_existing_account
 
 
 # ---------------------------------------------------------------------------
@@ -173,19 +185,27 @@ def test_created_account_cleanup_fixture_starts_empty(
 
 
 # ---------------------------------------------------------------------------
-# Durable-account fixtures (expected to SKIP until provisioning is
-# authorized — this is correct behavior, not a defect)
+# Durable-account fixtures
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(
-    reason="Demonstrates expected skip behavior only; run manually to observe "
-    "the durable_valid_account fixture correctly skip when unprovisioned "
-    "(docs/09-Automation-Scope.md §30 item 4). Left non-collected by default "
-    "so the framework-foundation suite reports a clean, unambiguous pass count."
-)
-def test_durable_valid_account_fixture_skips_when_unprovisioned(durable_valid_account: dict[str, str]) -> None:
-    pass  # pragma: no cover
+def test_durable_valid_account_fixture_returns_configured_credentials(
+    settings: Settings, durable_valid_account: dict[str, str]
+) -> None:
+    # Genuinely environment-aware, in both directions — no unconditional
+    # skip. Requesting `durable_valid_account` as a parameter is what
+    # triggers its own conditional behavior (tests/conftest.py):
+    #   - unprovisioned: the fixture itself calls pytest.skip() with a
+    #     clear reason before this body ever runs — this test SKIPS, not
+    #     fails (docs/09-Automation-Scope.md §30 item 4).
+    #   - provisioned: the fixture returns the configured {email, password}
+    #     dict, and this body asserts its contract — correct keys, values
+    #     matching Settings' own fields (never a literal credential typed
+    #     here), and non-empty.
+    assert durable_valid_account["email"] == settings.durable_valid_user_email
+    assert durable_valid_account["password"] == settings.durable_valid_user_password
+    assert durable_valid_account["email"] != ""
+    assert durable_valid_account["password"] != ""
 
 
 # ---------------------------------------------------------------------------

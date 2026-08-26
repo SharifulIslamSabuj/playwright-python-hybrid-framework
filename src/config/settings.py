@@ -68,6 +68,19 @@ class Settings:
     durable_valid_user_password: str = os.getenv("DURABLE_VALID_USER_PASSWORD", "")
     durable_existing_user_email: str = os.getenv("DURABLE_EXISTING_USER_EMAIL", "")
 
+    # Separate, narrower gate from the three durable-account fields above:
+    # this one covers actually CREATING or DELETING an account (AE-UI-TC-004,
+    # AE-API-TC-011/012), not merely reading/logging into one that already
+    # exists. Defaults False and must never be defaulted True — see
+    # docs/09-Automation-Scope.md §12/§30 item 4 and docs/07-Test-Cases.md
+    # AE-API-TC-011 ("this assistant does not perform account creation
+    # unilaterally"). Setting this to true is a human operator's own choice
+    # in their own execution environment; it is never set by this project's
+    # AI assistant itself under any circumstance.
+    account_creation_execution_authorized: bool = _env_bool(
+        "ACCOUNT_CREATION_EXECUTION_AUTHORIZED", False
+    )
+
     @property
     def report_dir_path(self) -> Path:
         return Path(self.report_dir)
@@ -96,6 +109,13 @@ class Settings:
 
     def has_durable_existing_account(self) -> bool:
         return bool(self.durable_existing_user_email)
+
+    def has_account_creation_execution_authorization(self) -> bool:
+        """False unless a human operator has explicitly set
+        ACCOUNT_CREATION_EXECUTION_AUTHORIZED=true in their own environment.
+        Callers must check this explicitly before creating or deleting a
+        real account — never assume it."""
+        return self.account_creation_execution_authorized
 
 
 settings = Settings()

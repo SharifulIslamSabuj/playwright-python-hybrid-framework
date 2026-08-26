@@ -32,15 +32,15 @@ on:
 env:
   AUT_BASE_URL: https://automationexercise.com
   API_BASE_URL: https://automationexercise.com
-  # Durable test-account credentials (docs/09-Automation-Scope.md §12/§30
-  # item 4, docs/18-Defect-Documentation.md §7 BLK-001/BLK-002). Left
-  # unset here — real values only ever come from repository secrets, never
-  # hard-coded (docs/04 §10, docs/08 §23, docs/11 §37). No currently
-  # implemented test consumes these; wiring them is forward-compatible
-  # plumbing only, not an authorization bypass (docs/19-CI-CD.md §9).
-  DURABLE_VALID_USER_EMAIL: ${{ secrets.DURABLE_VALID_USER_EMAIL }}
-  DURABLE_VALID_USER_PASSWORD: ${{ secrets.DURABLE_VALID_USER_PASSWORD }}
-  DURABLE_EXISTING_USER_EMAIL: ${{ secrets.DURABLE_EXISTING_USER_EMAIL }}
+  # DURABLE_VALID_USER_EMAIL/PASSWORD/DURABLE_EXISTING_USER_EMAIL were
+  # removed from this workflow-level env block (Step 8 architecture
+  # review): none of the 31 business regression cases consume them —
+  # every account-dependent case now uses the disposable
+  # shared_registered_account lifecycle (tests/conftest.py), gated solely
+  # by ACCOUNT_CREATION_EXECUTION_AUTHORIZED (nightly_regression job env,
+  # below). The durable_valid_account/durable_existing_account fixtures
+  # themselves remain in tests/conftest.py as optional infrastructure —
+  # only their CI wiring was removed here, since it was unused weight.
 
 jobs:
   # PR gate + Main branch regression (docs/10 §22: "Same as PR, Chromium").
@@ -121,6 +121,19 @@ jobs:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Job-scoped, not workflow-level: this must never leak into
+      # pr_main_regression. That job's marker filter ("regression and not
+      # ci_restricted") excludes AE-API-TC-011/012 (the account creator/
+      # deleter) but NOT AE-UI-TC-005/007/008/021 or AE-API-TC-007/014 —
+      # any of those six would still trigger shared_registered_account's
+      # first-use account creation on a PR run, with no TC-012 in that same
+      # job ever running to delete it (an orphaned-account defect), and
+      # would violate this project's own CI-RESTRICTED design: state-
+      # mutating tests confined to MAIN/NIGHTLY, never PR
+      # (docs/09-Automation-Scope.md §6). Nightly is the correct, and only
+      # correct, scope for this gate.
+      ACCOUNT_CREATION_EXECUTION_AUTHORIZED: ${{ secrets.ACCOUNT_CREATION_EXECUTION_AUTHORIZED }}
     steps:
       - uses: actions/checkout@v4
 

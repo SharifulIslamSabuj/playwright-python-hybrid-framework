@@ -9,11 +9,15 @@ classifies MANUAL, not AUTOMATE. Implementing it now would be unused code
 against a case this project has not approved for automation
 (docs/11-Framework-Architecture.md §13's own stated rule).
 
-`create_account`/`delete_account` build requests only — calling them still
-performs a real, state-mutating HTTP request against the shared public AUT.
-Per docs/09-Automation-Scope.md §12/§30 item 4, that execution requires
-explicit QA Lead authorization; this module defines the capability, it does
-not exercise it (no test in this project calls these two methods yet).
+`create_account`/`delete_account` build requests only — calling either
+still performs a real, state-mutating HTTP request against the shared
+public AUT. Per docs/09-Automation-Scope.md §12/§30 item 4, executing that
+request requires explicit QA Lead authorization; AE-API-TC-011/012
+(tests/api/test_auth_api.py) call these methods, but only ever actually
+reach them when the `account_creation_authorized` fixture
+(tests/conftest.py) does not skip — i.e., when a human operator has
+explicitly set ACCOUNT_CREATION_EXECUTION_AUTHORIZED=true in their own
+environment. This project's AI assistant never sets that value itself.
 """
 
 from __future__ import annotations

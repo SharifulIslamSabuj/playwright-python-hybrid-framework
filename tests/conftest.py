@@ -19,6 +19,7 @@ Clients, not the other way around).
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import re
 from collections.abc import Generator
@@ -32,7 +33,7 @@ from src.api.brands_api_client import BrandsApiClient
 from src.api.products_api_client import ProductsApiClient
 from src.config.settings import Settings, settings as _settings
 from src.data.models import NewUserPayload
-from src.data.users import build_new_user_payload
+from src.data.users import DataMode, build_new_user_payload, build_user_data
 from src.pages.cart_page import CartPage
 from src.pages.home_page import HomePage
 from src.pages.product_details_page import ProductDetailsPage
@@ -155,6 +156,144 @@ def durable_existing_account(settings: Settings) -> str:
             "unset) — see docs/09-Automation-Scope.md §30 item 4."
         )
     return settings.durable_existing_user_email
+
+
+@pytest.fixture(scope="session")
+def account_creation_authorized(settings: Settings) -> None:
+    """Gates AE-UI-TC-004 and (transitively, via `shared_registered_account`
+    below) every account-dependent Test Case — the ones that actually
+    create or delete a real account, as opposed to reading/logging into one
+    that already exists (see `durable_valid_account` above).
+
+    Session-scoped, not function-scoped: `shared_registered_account` below
+    is itself session-scoped (one account for the whole session) and would
+    raise pytest's ScopeMismatchError if it depended on a narrower-scoped
+    fixture (VERIFIED — this exact error was hit and fixed during the
+    account-lifecycle refactor). Safe to widen: this fixture only reads
+    `settings` (already session-scoped) and calls `pytest.skip()`, neither
+    of which depends on per-test state.
+
+    Skips with a clear, documented reason unless
+    ACCOUNT_CREATION_EXECUTION_AUTHORIZED is explicitly set to true in the
+    executing environment (docs/09-Automation-Scope.md §12/§30 item 4).
+    This is a human operator's own environment configuration; this
+    project's AI assistant never sets it — per docs/07-Test-Cases.md
+    AE-API-TC-011's own recorded statement, "this assistant does not
+    perform account creation unilaterally." Never invent or default this
+    to true."""
+    if not settings.has_account_creation_execution_authorization():
+        pytest.skip(
+            "Account creation/deletion execution is not authorized in this "
+            "environment (ACCOUNT_CREATION_EXECUTION_AUTHORIZED unset) — see "
+            "docs/09-Automation-Scope.md §12/§30 item 4 and "
+            "docs/07-Test-Cases.md AE-API-TC-011."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Shared account-lifecycle fixture
+#
+# `durable_valid_account`/`durable_existing_account` above remain fully
+# defined and usable — they are not obsolete as a *capability* (a human
+# operator may still prefer pointing tests at a real, durably-provisioned
+# account), but they are no longer what AE-UI-TC-005/007/008/021 and
+# AE-API-TC-007/014 consume. Those 6 cases, plus AE-API-TC-011/012, now
+# share ONE account created once per test session, per the account-
+# lifecycle architecture requirement: create once → reuse across every
+# dependent test → delete last. `account_creation_authorized` is NOT
+# obsolete either — it is still the sole real-account-mutation gate, now
+# guarding this fixture instead of guarding TC-004/API-011/012 individually.
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass
+class SharedAccountState:
+    """The single account AE-UI-TC-005/007/008/021, AE-API-TC-007/011/012/014
+    share for the duration of one test session. `create_response` lets
+    AE-API-TC-011 make a genuine assertion about the creation this fixture
+    performed, without AE-API-TC-011 having to perform the creation itself
+    (it already happened, once, the first time any dependent test requested
+    this fixture) — the same "fixture performs the mechanical action, the
+    Test Case makes its own real assertion on the recorded result" split
+    already used by `pytest_runtest_makereport` elsewhere in this file.
+    `deleted` lets AE-API-TC-012 signal it already performed the real
+    deletion, so this fixture's own teardown (the unconditional safety net,
+    same pattern as `created_account_cleanup`) does not attempt a second,
+    redundant delete call."""
+
+    payload: NewUserPayload
+    create_response: Any
+    deleted: bool = False
+
+
+@pytest.fixture(scope="session")
+def shared_registered_account(
+    auth_api: AuthApiClient, account_creation_authorized: None
+) -> Generator[SharedAccountState, None, None]:
+    """Creates exactly one real account (FULL_DYNAMIC-generated data, via
+    `build_user_data` — no hard-coded credentials) the first time any
+    dependent test requests it in this session, via the real `createAccount`
+    API (not the UI — API creation is the reliable, fast foundation shared
+    by both UI- and API-layer dependent tests). Session-scoped, so every
+    Test Case that requests it across both tests/ui/ and tests/api/ receives
+    the SAME account — this is what lets AE-UI-TC-005/007/021,
+    AE-API-TC-007/014 log into a real identity without needing a durable,
+    human-provisioned one, and what lets AE-UI-TC-008 use a genuinely
+    already-registered email.
+
+    Teardown deletes the account exactly once, at the very end of the
+    session, unless AE-API-TC-012 already performed the real deletion
+    itself (see `SharedAccountState.deleted`) — this fixture's own delete
+    call is an unconditional safety net (docs/10-Automation-Strategy.md
+    §35), not the primary mechanism; see `pytest_collection_modifyitems`
+    below for what orders AE-API-TC-012 to run last among the tests that
+    depend on this fixture.
+
+    Gated by `account_creation_authorized`, unchanged — this fixture
+    performs real account creation, so the same authorization control
+    still applies (see that fixture's own docstring)."""
+    payload = build_user_data("shared_account_session", DataMode.FULL_DYNAMIC)
+    create_response = auth_api.create_account(payload)
+    state = SharedAccountState(payload=payload, create_response=create_response)
+    yield state
+    if not state.deleted:
+        try:
+            response = auth_api.delete_account(payload["email"], payload["password"])
+            _logger.info(
+                "Session cleanup: deleted shared account %s -> HTTP %s",
+                payload["email"], response.status_code,
+            )
+        except Exception:
+            _logger.exception(
+                "Session cleanup FAILED for shared account %s — requires manual follow-up",
+                payload["email"],
+            )
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Orders the shared-account lifecycle correctly across modules, which
+    plain pytest file/definition-order collection cannot guarantee on its
+    own (tests/api/ and tests/ui/ collect as separate modules): the
+    account-creating test (AE-API-TC-011) must run before every other test
+    that consumes `shared_registered_account`, and the account-deleting
+    test (AE-API-TC-012) must run after all of them — the "create once, use
+    by many, delete last" lifecycle this architecture requires.
+
+    A stable sort keyed by lifecycle phase: any item NOT using
+    `shared_registered_account` is phase 1 (unaffected — Python's stable
+    sort preserves its original relative position among other phase-1
+    items, so no unrelated test's ordering changes)."""
+
+    def _phase(item: pytest.Item) -> int:
+        if "shared_registered_account" not in getattr(item, "fixturenames", ()):
+            return 1
+        if item.name.startswith("test_ae_api_tc_011_create_account"):
+            return 0
+        if item.name.startswith("test_ae_api_tc_012_delete_account"):
+            return 2
+        return 1
+
+    items.sort(key=_phase)
 
 
 # ---------------------------------------------------------------------------
