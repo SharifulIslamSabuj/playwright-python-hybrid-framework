@@ -160,3 +160,27 @@ To be confirmed via `git status --short` immediately after this document is writ
 | Approval Status | **Complete — Pending QA Lead Approval** | | |
 
 Approval of this exit criterion by the QA Lead is required before proceeding to Step 19 — CI/CD.
+
+## 14. Post-Approval Addendum — Step 4–9 Findings (2026-08-27)
+
+**Disclosed, not a silent correction.** Sections 1–13 above remain exactly as originally approved and are not rewritten. This addendum records what changed and what was found in the account-lifecycle implementation, CI/CD hardening, and cross-browser work completed after this document's original approval.
+
+**`BLK-001`/`BLK-002` (Section 7) — RESOLVED, no longer open.** The account-provisioning authorization dependency that blocked all 9 cases was resolved via a disposable-account architecture (`shared_registered_account`, `tests/conftest.py`) gated by the `ACCOUNT_CREATION_EXECUTION_AUTHORIZED` repository secret — not by provisioning the durable account these two blockers originally assumed. All 9 cases (`AE-UI-TC-004/005/007/008/021`, `AE-API-TC-007/011/012/014`) are implemented and have real, evidence-based execution: local (`61/61`, full suite) and GitHub Actions (`Full Project Validation`, run `33037686550`, `60/61 passed` — the single skip is unrelated, see below). `BLK-001`/`BLK-002` are CLOSED as of this addendum.
+
+**New finding — `AE-UI-TC-019` (Finding 4).** Classification: **INVESTIGATED / INCONCLUSIVE / ACCEPTED RISK**. A 4-round targeted investigation (synchronization wait, accordion-state instrumentation, click-retry) found no reproducible automation defect in `ProductsPage.open_category`; no code change was made or is planned. Consistent with the `OBS-001` classification framework (Section 6) — treated as an accepted, standing environmental risk, not a defect.
+
+**New finding — `AE-UI-TC-020`.** Two independent root causes observed across separate incidents, both since addressed or explained:
+1. A confirmed, fixed automation defect: a third-party ad/survey vignette overlay intercepted clicks (direct screenshot evidence, GitHub Actions run `33021750130`). **CLOSED** — fixed by applying the existing `block_third_party_ads()` (commit `495fb94`), verified via a subsequent real GitHub Actions pass.
+2. A separate incident (run `32924740322`, before the fix above existed) and later recurrences are consistent with `OBS-001`-class AUT/environment instability, including one run where every test in the suite failed simultaneously (HTTP 200-with-empty-body API responses, UI timeouts across the board) and recovered on retry with no code change — reinforcing, not contradicting, `OBS-001`'s existing classification and evidence.
+
+**New defect, found and closed — CI browser-flag accumulation.** `.github/workflows/ci.yml`'s `release_validation` job used a bare `--browser=${{ matrix.browser }}` CLI flag, which accumulates with (does not replace) `pyproject.toml`'s baked-in `--browser=chromium` addopts entry — silently duplicating tests on the chromium leg and colliding browser variants on the firefox/webkit legs. **CLOSED** — fixed via `--override-ini` (commit `830d804`), verified via a subsequent real GitHub Actions pass across all three browsers.
+
+**New defect, found — transient WebKit bot-protection challenge.** One `release_validation` run (`33028873312`) showed all executed WebKit tests failing with a "Please wait while your request is being verified…" challenge screen (direct screenshot evidence) — the AUT's own anti-automation layer, not a repository defect. A subsequent re-run (`33031813951`) passed cleanly on all three browsers, confirming the challenge was transient, not a persistent per-browser block. No code fix applies or was made; recorded as an accepted, external risk consistent with `OBS-001`'s framework.
+
+**Intentional, documented skip — not a defect.** `tests/test_framework_foundation.py::test_durable_valid_account_fixture_returns_configured_credentials` skips in every current CI job, including the new `full_project_validation` job (run `33037686550`, `60/61 passed, 1 skipped, 0 failed`). This is by design: `DURABLE_VALID_USER_EMAIL`/`DURABLE_VALID_USER_PASSWORD` are deliberately not provisioned as repository secrets, because — per the account-lifecycle architecture above — no business Test Case consumes them any longer. This is a Tier-1 infrastructure test verifying the `durable_valid_account` fixture's own dual (provisioned/unprovisioned) behavior, not one of the 31 business cases.
+
+| Role | Name | Status | Date |
+|---|---|---|---|
+| Prepared By | AI Assistant (advisory, acting as Test Automation Engineer) | Complete — pending review | 2026-08-27 |
+| Reviewed By | QA Lead | Pending | — |
+| Approved By | QA Lead | Pending | — |

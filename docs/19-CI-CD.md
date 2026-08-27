@@ -231,3 +231,29 @@ Per [11-Framework-Architecture.md §44](11-Framework-Architecture.md): `Step 20+
 | Approval Status | **Complete — Pending QA Lead Approval** | | |
 
 Approval of this exit criterion by the QA Lead is required before proceeding to Step 20. Per instruction, this step does not proceed further on its own.
+
+## 16. Post-Approval Addendum — Step 4–9 Findings (2026-08-27)
+
+**Disclosed, not a silent correction.** Sections 1–14 above describe the CI/CD state as approved at Step 19 (2026-08-25), when 22 of 31 `AUTOMATE` cases were implemented and 0 carried `ci_restricted`. That state has since evolved through Steps 4–9 of this session — the facts below supersede specific figures and claims above; nothing in Sections 1–14 was rewritten.
+
+**All 31 `AUTOMATE` cases are now implemented** (see [18 §14](18-Defect-Documentation.md), [23 §13](23-Test-Summary-Report.md)), including the 3 that now carry `ci_restricted`: `AE-UI-TC-004`, `AE-API-TC-011`, `AE-API-TC-012` (verified by direct inspection of `tests/ui/test_signup_login.py` and `tests/api/test_auth_api.py`). This supersedes §4's table row ("`ci_restricted` | ... | **None**") and §6/§10's "0 currently carry `ci_restricted`" / "22/50" collection figures.
+
+**Section 7 is superseded, not contradicted — this is the outcome it explicitly predicted.** §7 stated: "The moment the 3 CI-RESTRICTED cases are implemented and marked, `nightly_regression` picks them up automatically." That has now happened: `nightly_regression` (`-m regression`, no exclusion) includes those 3 cases; `pr_main_regression` (`-m "regression and not ci_restricted"`) still excludes them. The two jobs are no longer identical in composition.
+
+**The workflow now has 4 jobs, not 3.** A `full_project_validation` job (`workflow_dispatch`, unfiltered `pytest -v`, all three browsers installed) was added — see [18 §14](18-Defect-Documentation.md) and the real GitHub Actions run cited there (`33037686550`, `60/61 passed, 1 skipped`).
+
+**Secrets wiring changed (§139 superseded).** The workflow-level `DURABLE_VALID_USER_EMAIL`/`DURABLE_VALID_USER_PASSWORD`/`DURABLE_EXISTING_USER_EMAIL` `${{ secrets.* }}` bindings described in §139 were removed — the disposable-account architecture ([18 §14](18-Defect-Documentation.md)) means no business case ever consumes them, so the forward-compatible plumbing was dead weight. In its place, `ACCOUNT_CREATION_EXECUTION_AUTHORIZED` is now wired job-scoped into `nightly_regression` and `full_project_validation`, gating disposable-account creation only — no durable-account secret is provisioned or referenced anywhere in `ci.yml`.
+
+**`release_validation`'s browser-selection mechanism changed.** Bare `--browser=X` (as designed in §6) was replaced with `--override-ini="addopts=...--browser=X"` to fix a real CLI-flag-accumulation defect (pytest-playwright's `--browser` is additive, not replacing; commit `830d804`) — same intent (one browser engine per matrix leg), corrected mechanism.
+
+**Open, non-blocking discrepancy — `cross_browser` marker (§45/§48 vs. actual code).** §48's table and [10-Automation-Strategy.md §17](10-Automation-Strategy.md) both define the curated cross-browser subset as exactly 4 cases (`AE-UI-TC-006/015/018/024`). Direct inspection of `tests/ui/test_signup_login.py` shows a 5th case, `AE-UI-TC-005`, also carries `@pytest.mark.cross_browser` (added during this session's Step 4 implementation). This is disclosed here, not silently resolved: per this closure task's explicit instruction not to modify test/production logic, the marker itself is left as-is. A future step should have the QA Lead decide whether to update [10 §17](10-Automation-Strategy.md)'s definition to include `AE-UI-TC-005`, or remove the marker — either is a one-line change, deferred to that decision rather than made unilaterally here.
+
+**`Jenkinsfile` / `azure-pipelines.yml` — not updated, disclosed gap.** Both still describe the Step-19 22-case/"0 `ci_restricted`" state (§6b/§6c) and were not touched this session. Per §6a, **neither platform has ever been externally executed**, so this gap has zero effect on real CI behavior today. Bringing them to parity with `ci.yml`'s current state would be a non-trivial rewrite of two full pipeline files — outside this closure task's documentation-correction scope (no code/config behavior change was invited here) — and is flagged for a future step rather than fixed now.
+
+**§13 and §14's exit-criteria "22...no more, no fewer" language** is superseded by the above: the implemented, CI-executed count is now 31/31, not 22/31.
+
+| Role | Name | Status | Date |
+|---|---|---|---|
+| Prepared By | AI Assistant (advisory, acting as Test Automation Engineer) | Complete — pending review | 2026-08-27 |
+| Reviewed By | QA Lead | Pending | — |
+| Approved By | QA Lead | Pending | — |

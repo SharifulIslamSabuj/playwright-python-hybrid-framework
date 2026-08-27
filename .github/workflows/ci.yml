@@ -2,11 +2,11 @@
 # and docs/11-Framework-Architecture.md §27/§29/§30/§31 exactly, per the
 # QA-Lead-approved Step 19 execution plan (docs/19-CI-CD.md).
 #
-# Runs ONLY the 22 currently implemented, approved automated Test Cases
-# (12 UI + 9 API + 1 Hybrid), selected via the pytest markers already
-# registered in pyproject.toml. The 9 blocked cases have no test code and
-# therefore cannot and do not appear here — no placeholder/skip entry is
-# created for them (docs/19-CI-CD.md §6).
+# Runs all 31 implemented, approved automated Test Cases (17 UI + 13 API +
+# 1 Hybrid — the 9 cases originally blocked on account-provisioning
+# authorization were resolved via the disposable account-lifecycle
+# architecture, docs/18-Defect-Documentation.md §14), selected via the
+# pytest markers already registered in pyproject.toml.
 #
 # Docker is intentionally NOT part of this workflow — per docs/11 §44 it is
 # assigned to Step 20+, not Step 19 (docs/19-CI-CD.md §5).
@@ -109,13 +109,11 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
-  # Nightly canary (docs/10 §22): full 31-case set including the
-  # CI-RESTRICTED pair. Today this selects the same 22 tests as the PR/Main
-  # job, since none of the 3 CI-RESTRICTED cases are implemented yet — its
-  # present value is the environment-instability canary purpose (running
-  # independent of code changes), not broader coverage. It will
-  # automatically pick up the CI-RESTRICTED cases the moment they are
-  # implemented and marked, with no workflow change required.
+  # Nightly canary (docs/10 §22): full 31-case set including the 3
+  # CI-RESTRICTED cases (AE-UI-TC-004, AE-API-TC-011/012), which are now
+  # implemented and marked. This job's `-m regression` selection (no
+  # exclusion) therefore genuinely differs from pr_main_regression's
+  # `-m "regression and not ci_restricted"` — docs/19-CI-CD.md §16.
   nightly_regression:
     name: Nightly Regression (Chromium, full set)
     if: github.event_name == 'schedule'

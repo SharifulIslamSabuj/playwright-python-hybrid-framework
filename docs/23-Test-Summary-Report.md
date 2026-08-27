@@ -172,3 +172,15 @@ Two Exit Criteria (§4.3, §4.4) and two Completion criteria (§5.3, and effecti
 | Approval Status | **Complete — Pending QA Lead Approval** | | |
 
 Approval of this exit criterion by the QA Lead is required before proceeding to Step 24 / Phase 18. This document does not itself constitute that approval, nor a release-readiness decision.
+
+## 13. Post-Approval Addendum — Step 4–9 Findings (2026-08-27)
+
+**Disclosed, not a silent correction.** Sections 1–12 above remain exactly as originally approved and are not rewritten. §4.3's "9 unexecuted, blocked" reasoning and §11's recommendation were accurate as of this document's original approval and are now superseded by the facts below.
+
+**The 9 previously-blocked cases (§4.3, §Recommendation, [18 §7](18-Defect-Documentation.md)) are now implemented and executed**, via the disposable-account architecture recorded in [18 §14](18-Defect-Documentation.md) (`BLK-001`/`BLK-002` closed there). Evidence: local full-suite execution (`61/61` collected/executed) and real GitHub Actions execution — `Full Project Validation`, run `33037686550`, `60/61 passed, 0 failed, 1 skipped` (the one skip is an unrelated, intentional Tier-1 infrastructure test, not a business case — see [18 §14](18-Defect-Documentation.md)).
+
+**Automation coverage (§9, superseding the "22/31 = 71.0%" figure):** 31/31 `AUTOMATE`-approved cases now implemented and executed at least once, evidence-based, 0 outstanding.
+
+**Gate 5** ([05 §22](05-Test-Strategy.md), "Critical regression complete"): status changes from **PARTIAL** to **MET** — all Critical-priority `REQ-*` items now have passing evidence; no accepted exception remains outstanding for coverage. (`AE-UI-TC-019`'s accepted-risk status, [18 §14](18-Defect-Documentation.md), is a reliability/flakiness classification, not a coverage gap, and does not reopen this gate.)
+
+**§11 Recommendation, updated:** the account-authorization blocker (root cause "a") is resolved. The remaining next action is unchanged in kind: QA Lead review and sign-off ([04 §26](04-Test-Plan.md)) — now against a 31/31-executed evidence base rather than 22/31.

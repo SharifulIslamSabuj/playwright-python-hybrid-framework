@@ -263,3 +263,33 @@ This document computes the [docs/05 §24](05-Test-Strategy.md) metric set entire
 | Approval Status | **Complete — Pending QA Lead Approval** | | |
 
 Approval of this exit criterion by the QA Lead is required before proceeding to Step 23.
+
+## 20. Post-Approval Addendum — Step 4–9 Findings (2026-08-27)
+
+**Disclosed, not a silent correction.** Sections 1–19 above remain exactly as originally approved — this document's own §17 already frames it as "a static, point-in-time synthesis," not a live dashboard, so those sections are preserved as the accurate snapshot as of 2026-08-25. The facts below record what has since changed and supersede the specific figures affected.
+
+**`BLK-001`/`BLK-002` (§39, §57, §77, §196) — CLOSED, no longer open.** Resolved via the disposable-account architecture, not durable-account provisioning — see [18 §14](18-Defect-Documentation.md). All 9 previously-blocked cases (`AE-UI-TC-004/005/007/008/021`, `AE-API-TC-007/011/012/014`) are now implemented and executed with real evidence (local `61/61`; GitHub Actions run `33037686550`, `60/61 passed, 1 unrelated skip`).
+
+**Superseded figures:**
+| Metric (original) | Original value | Current value |
+|---|---|---|
+| Business Test Cases implemented and executed (§37) | 22 | 31 |
+| Blocked (§39, §57, §77, §196) | 9 | 0 |
+| Implemented of approved `AUTOMATE` scope (§102) | 22/31 = 71.0% | 31/31 = 100% |
+| API: Implemented and passing (§139) | 9/14 = 64.3% | 13/14 = 92.9% |
+| API: Approved but blocked (§140) | 4/14 | 0/14 |
+| Gate 5 — Critical regression complete (§45, §240) | PARTIAL | MET — see [23 §13](23-Test-Summary-Report.md) |
+
+**§7's scope-level coverage figures (31/46 = 67.4% overall, 17/29 UI, 13/14 API, 1/3 Hybrid, the 76.9% P0 ceiling) are unaffected and not restated here** — those measure `AUTOMATE`-approved scope against the total 46-case catalog, a boundary this session's work did not change; only the *implementation* figures above moved.
+
+**§8.2's 25-identifier requirement list is superseded** — the 9 newly-implemented cases carry their own `Requirement:` fields (visible in each test's docstring), extending direct execution evidence to additional `REQ-*` identifiers beyond the 25 listed. A full re-enumeration was not performed here, consistent with §8.2's own original scope boundary (no full 48-item traceability matrix is built by this document); the traceability table produced for this closure task ([23 §13](23-Test-Summary-Report.md) and the accompanying closure report) supersedes this section for current status.
+
+**§15's "9 of 46 approved cases... remain entirely unautomated pending authorization" is superseded** — 0 cases remain in that state.
+
+**§21's `AE-API-TC-007`/`014` SAFE-vs-LIMITED classification discrepancy remains open**, but its practical consequence changes: both cases are no longer blocked/unimplemented, so the discrepancy is no longer moot-by-non-existence. In practice it remains inconsequential because this project never enables `pytest-xdist`/parallel workers in any job ([19 §9](19-CI-CD.md)) — parallelization-safety classification has no live effect either way. Still disclosed, not resolved, per the original instruction.
+
+| Role | Name | Status | Date |
+|---|---|---|---|
+| Prepared By | AI Assistant (advisory, acting as Test Automation Engineer) | Complete — pending review | 2026-08-27 |
+| Reviewed By | QA Lead | Pending | — |
+| Approved By | QA Lead | Pending | — |
