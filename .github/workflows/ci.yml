@@ -202,17 +202,35 @@ jobs:
         if: matrix.browser == 'chromium'
         run: python -m pytest tests/test_setup_validation.py tests/test_framework_foundation.py -v -m "not requires_all_browsers"
 
+      # --override-ini, not a bare --browser flag: pytest-playwright's
+      # --browser is a multi-value option, so a CLI --browser=X ACCUMULATES
+      # with pyproject.toml's own baked-in "--browser=chromium" addopts
+      # entry rather than replacing it — CONFIRMED as the actual root cause
+      # of GitHub Actions run 33027459633 (2026-08-27): the firefox/webkit
+      # legs collected both `[chromium]` and the target-browser variants
+      # (only the target browser is installed on that runner, so every
+      # `[chromium]` variant failed with "Executable doesn't exist"), and
+      # the chromium leg silently duplicated every UI/Hybrid test as
+      # `[chromium0]`/`[chromium1]`, roughly doubling real request volume
+      # against the AUT and very plausibly triggering the HTTP 403
+      # responses observed in that run's failure screenshots. This exact
+      # accumulation bug and this exact fix were already found and
+      # verified for local cross-browser execution earlier in this
+      # project's history — never previously propagated into this
+      # workflow file.
       - name: Full regression suite (Chromium leg only)
         if: matrix.browser == 'chromium'
         run: >
-          python -m pytest -m regression --browser=chromium
+          python -m pytest -m regression
+          --override-ini="addopts=--strict-markers --screenshot=only-on-failure --tracing=retain-on-failure --output=reports/artifacts --browser=chromium"
           --reruns 2 --reruns-delay 3 -v
           --html=reports/html/release-chromium.html --self-contained-html
 
       - name: Curated cross-browser subset (${{ matrix.browser }})
         if: matrix.browser != 'chromium'
         run: >
-          python -m pytest -m cross_browser --browser=${{ matrix.browser }}
+          python -m pytest -m cross_browser
+          --override-ini="addopts=--strict-markers --screenshot=only-on-failure --tracing=retain-on-failure --output=reports/artifacts --browser=${{ matrix.browser }}"
           --reruns 2 --reruns-delay 3 -v
           --html=reports/html/release-${{ matrix.browser }}.html --self-contained-html
 
