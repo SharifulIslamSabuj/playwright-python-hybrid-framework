@@ -26,6 +26,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
+import allure
 import pytest
 
 from src.api.auth_api_client import AuthApiClient
@@ -361,6 +362,12 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> Gener
     docstring = getattr(getattr(item, "function", None), "__doc__", None) or ""
     match = _TEST_CASE_ID_PATTERN.search(docstring)
     report.test_case_id = match.group(1) if match else ""
+    # Stashed for `_attach_playwright_failure_evidence_to_allure` below:
+    # fixture teardown code has no direct access to a TestReport, so making
+    # the per-phase report available on `item` (the standard, documented
+    # pytest pattern for this) is how that fixture learns whether the CALL
+    # phase failed.
+    setattr(item, f"rep_{report.when}", report)
 
 
 def pytest_html_results_table_header(cells: list[str]) -> None:
@@ -432,6 +439,55 @@ def pytest_html_results_table_row(report: pytest.TestReport, cells: list[str]) -
 
     test_case_id = getattr(report, "test_case_id", "") or "N/A"
     cells.insert(2, f'<td class="col-testcaseid">{test_case_id}</td>')
+
+
+@pytest.fixture(autouse=True)
+def _attach_playwright_failure_evidence_to_allure(
+    request: pytest.FixtureRequest,
+) -> Generator[None, None, None]:
+    """Bridges pytest-playwright's own screenshot/trace capture into
+    Allure's attachment model — the gap the STEP 14 read-only audit found:
+    `reports/artifacts/` already had the files and `pytest_html_results_table_row`
+    above already links them into pytest-html, but nothing previously read
+    them into the Allure result JSON's `attachments` array.
+
+    Autouse, not requested per-test: the only way to cover every test
+    without editing any test file. Performs no AUT interaction and asserts
+    nothing — plumbing only, same "cross-cutting instrumentation" category
+    as the reporting hooks above it, not business Test Case logic.
+
+    Attaches in TEARDOWN (after `yield`), not in the makereport hookwrapper
+    above — verified necessary, not assumed: pytest-playwright's own
+    `page`/`context` fixtures write screenshot/trace files during THEIR OWN
+    teardown (after the test function returns), and fixture teardowns all
+    run during pytest's TEARDOWN phase, strictly before that phase's own
+    `pytest_runtest_makereport` fires — which is also when allure-pytest's
+    own listener finalizes and writes the result JSON to disk. Attaching
+    here, before that finalization, is what gets the file into the JSON's
+    `attachments` array at all.
+
+    Reuses `_find_artifact_dir` (defined above) — the exact same
+    nodeid-matching logic the pytest-html Links column already trusts —
+    rather than a second, divergent way of locating the same files."""
+    yield
+    call_report: pytest.TestReport | None = getattr(request.node, "rep_call", None)
+    if call_report is None or not call_report.failed:
+        return  # Never attaches for a passing test.
+
+    artifact_dir = _find_artifact_dir(request.node.nodeid)
+    if artifact_dir is None:
+        return  # No UI failure evidence exists for this test (e.g. a pure-API test).
+
+    for screenshot in sorted(artifact_dir.glob("test-failed-*.png")):
+        allure.attach.file(
+            str(screenshot), name=screenshot.name, attachment_type=allure.attachment_type.PNG
+        )
+
+    trace_file = artifact_dir / "trace.zip"
+    if trace_file.is_file():
+        allure.attach.file(
+            str(trace_file), name="trace.zip", attachment_type=allure.attachment_type.ZIP
+        )
 
 
 def _detect_execution_platform() -> str:
