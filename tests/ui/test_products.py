@@ -103,7 +103,23 @@ def test_ae_ui_tc_019_view_category_products_and_switch_category(products_page: 
 
     Expected Result (docs/07-Test-Cases.md): category-scoped product
     listings render and update when switching sub-category.
+
+    Calls `block_third_party_ads()` before the first navigation: CONFIRMED
+    root cause of a real CI failure (GitHub Actions run 33021750130,
+    2026-08-26) via direct screenshot evidence — a full-screen third-party
+    ad/survey vignette (a Google-served "Answer questions to support great
+    content" overlay in one occurrence, a JustAnswer chat prompt in the
+    other) intercepted the click on the test's SECOND navigation in both
+    failures, matching the same confirmed ad-injection source already
+    documented for the Hybrid test (docs/16-Hybrid-E2E-Automation.md §20).
+    Vignette-style ads characteristically trigger after a prior page view
+    in the same session — consistent with both failures occurring on the
+    second `products_page.open()` call, never the first. This blocks the
+    confirmed ad domains at the network level (no business assertion
+    changed, no wait/retry/sleep added) rather than working around a
+    symptom.
     """
+    products_page.block_third_party_ads()
     products_page.open()
 
     products_page.open_category(CATEGORY_TOP_LEVEL, CATEGORY_SUB_1)
@@ -126,7 +142,13 @@ def test_ae_ui_tc_020_view_brand_products_and_switch_brand(products_page: Produc
 
     Expected Result (docs/07-Test-Cases.md): brand-scoped listings render
     and update when switching brand.
+
+    Calls `block_third_party_ads()` before the first navigation — same
+    confirmed root cause and evidence as AE-UI-TC-019 above (GitHub
+    Actions run 33021750130): a third-party ad vignette intercepted the
+    click on this test's second navigation.
     """
+    products_page.block_third_party_ads()
     products_page.open()
 
     products_page.open_brand(BRAND_1_HREF)
