@@ -93,6 +93,37 @@ jobs:
           --reruns 2 --reruns-delay 3 -v
           --html=reports/html/regression-chromium.html --self-contained-html
 
+      # Allure CLI + report generation are entirely isolated from the test
+      # result: if: always() so a report is still produced after a test
+      # failure (evidence value), and continue-on-error: true so neither
+      # step can ever flip this job's pass/fail signal — that remains
+      # determined solely by the pytest step above's own exit code, never
+      # by reporting tooling. Official npm distribution (registry.npmjs.org
+      # package "allure-commandline"), pinned to 2.39.0 — the exact version
+      # already validated locally (Phase 3) — not a third-party GitHub
+      # Action (evaluated and rejected: see docs addendum planned for
+      # docs/19-CI-CD.md).
+      - name: Install Allure CLI
+        if: always()
+        continue-on-error: true
+        run: npm install -g allure-commandline@2.39.0
+
+      # Guarded on the results directory actually having content: if an
+      # earlier step failed before pytest ever ran, reports/allure-results
+      # would not exist, and an unguarded `allure generate` would error on
+      # nothing to generate from. --clean matches the exact local
+      # generation command already validated in Phase 3 — no history
+      # carried between runs (Phase 5+ decision, not made here).
+      - name: Generate Allure HTML report
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -d reports/allure-results ] && [ -n "$(ls -A reports/allure-results 2>/dev/null)" ]; then
+            allure generate reports/allure-results --clean -o reports/allure-report
+          else
+            echo "No Allure results found — skipping report generation."
+          fi
+
       # Evidence preserved on failure regardless of which step failed
       # (docs/10 §15/§19): HTML report every run, screenshots on UI
       # failure, traces on retry-then-fail. Logs are the job's own console
@@ -106,6 +137,8 @@ jobs:
           path: |
             reports/html/
             reports/artifacts/
+            reports/allure-results/
+            reports/allure-report/
           retention-days: 14
           if-no-files-found: ignore
 
@@ -156,6 +189,24 @@ jobs:
           --reruns 2 --reruns-delay 3 -v
           --html=reports/html/regression-nightly.html --self-contained-html
 
+      # Same isolation as pr_main_regression above: neither step can ever
+      # flip this job's pass/fail signal, which stays tied solely to the
+      # pytest step's own exit code.
+      - name: Install Allure CLI
+        if: always()
+        continue-on-error: true
+        run: npm install -g allure-commandline@2.39.0
+
+      - name: Generate Allure HTML report
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -d reports/allure-results ] && [ -n "$(ls -A reports/allure-results 2>/dev/null)" ]; then
+            allure generate reports/allure-results --clean -o reports/allure-report
+          else
+            echo "No Allure results found — skipping report generation."
+          fi
+
       - name: Upload test evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -164,6 +215,8 @@ jobs:
           path: |
             reports/html/
             reports/artifacts/
+            reports/allure-results/
+            reports/allure-report/
           retention-days: 14
           if-no-files-found: ignore
 
@@ -216,11 +269,18 @@ jobs:
       # verified for local cross-browser execution earlier in this
       # project's history — never previously propagated into this
       # workflow file.
+      # --alluredir is explicitly re-added in both --override-ini strings
+      # below: --override-ini REPLACES pyproject.toml's addopts wholesale
+      # (that is the exact mechanism the browser-flag fix above relies on),
+      # so it would otherwise silently drop the --alluredir=reports/allure-
+      # results entry Phase 1 added to addopts, unlike every other job in
+      # this workflow, none of which override addopts and therefore inherit
+      # it automatically.
       - name: Full regression suite (Chromium leg only)
         if: matrix.browser == 'chromium'
         run: >
           python -m pytest -m regression
-          --override-ini="addopts=--strict-markers --screenshot=only-on-failure --tracing=retain-on-failure --output=reports/artifacts --browser=chromium"
+          --override-ini="addopts=--strict-markers --screenshot=only-on-failure --tracing=retain-on-failure --output=reports/artifacts --alluredir=reports/allure-results --browser=chromium"
           --reruns 2 --reruns-delay 3 -v
           --html=reports/html/release-chromium.html --self-contained-html
 
@@ -228,9 +288,29 @@ jobs:
         if: matrix.browser != 'chromium'
         run: >
           python -m pytest -m cross_browser
-          --override-ini="addopts=--strict-markers --screenshot=only-on-failure --tracing=retain-on-failure --output=reports/artifacts --browser=${{ matrix.browser }}"
+          --override-ini="addopts=--strict-markers --screenshot=only-on-failure --tracing=retain-on-failure --output=reports/artifacts --alluredir=reports/allure-results --browser=${{ matrix.browser }}"
           --reruns 2 --reruns-delay 3 -v
           --html=reports/html/release-${{ matrix.browser }}.html --self-contained-html
+
+      # One unconditional pair covering whichever of the two pytest steps
+      # above actually ran on this matrix leg — each leg is its own
+      # runner/VM, so there is no cross-leg file collision. Same isolation
+      # as the other jobs: neither step can ever flip this job's pass/fail
+      # signal, which stays tied solely to whichever pytest step ran.
+      - name: Install Allure CLI
+        if: always()
+        continue-on-error: true
+        run: npm install -g allure-commandline@2.39.0
+
+      - name: Generate Allure HTML report
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -d reports/allure-results ] && [ -n "$(ls -A reports/allure-results 2>/dev/null)" ]; then
+            allure generate reports/allure-results --clean -o reports/allure-report
+          else
+            echo "No Allure results found — skipping report generation."
+          fi
 
       - name: Upload test evidence
         if: always()
@@ -240,6 +320,8 @@ jobs:
           path: |
             reports/html/
             reports/artifacts/
+            reports/allure-results/
+            reports/allure-report/
           retention-days: 14
           if-no-files-found: ignore
 
@@ -288,6 +370,24 @@ jobs:
           python -m pytest -v
           --html=reports/html/full-validation.html --self-contained-html
 
+      # Same isolation as every other job above: neither step can ever
+      # flip this job's pass/fail signal, which stays tied solely to the
+      # pytest step's own exit code.
+      - name: Install Allure CLI
+        if: always()
+        continue-on-error: true
+        run: npm install -g allure-commandline@2.39.0
+
+      - name: Generate Allure HTML report
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -d reports/allure-results ] && [ -n "$(ls -A reports/allure-results 2>/dev/null)" ]; then
+            allure generate reports/allure-results --clean -o reports/allure-report
+          else
+            echo "No Allure results found — skipping report generation."
+          fi
+
       - name: Upload test evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -296,5 +396,7 @@ jobs:
           path: |
             reports/html/
             reports/artifacts/
+            reports/allure-results/
+            reports/allure-report/
           retention-days: 14
           if-no-files-found: ignore

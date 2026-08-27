@@ -31,10 +31,24 @@ reports/html/*
 reports/screenshots/*
 reports/traces/*
 reports/videos/*
+# reports/artifacts/ is pytest-playwright's actual --output directory
+# (pyproject.toml addopts) — was missing here, so screenshot/trace evidence
+# under it was never actually gitignored despite being generated output.
+reports/artifacts/*
+# reports/allure-results/ — raw Allure result collection (Phase 1), same
+# generated-output-only treatment as the directories above.
+reports/allure-results/*
+# reports/allure-report/ — the generated static Allure HTML site (Phase 3),
+# same generated-output-only treatment. Was missing here since Phase 3
+# only validated local generation and didn't touch .gitignore.
+reports/allure-report/*
 !reports/html/.gitkeep
 !reports/screenshots/.gitkeep
 !reports/traces/.gitkeep
 !reports/videos/.gitkeep
+!reports/artifacts/.gitkeep
+!reports/allure-results/.gitkeep
+!reports/allure-report/.gitkeep
 
 # --- Environment / secrets (docs/11 §37: never committed) ---
 .env

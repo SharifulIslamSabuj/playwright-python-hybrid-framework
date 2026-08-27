@@ -15,6 +15,7 @@ dependencies = [
     "pytest-xdist==3.8.0",
     "pytest-rerunfailures==16.6",
     "openpyxl==3.1.5",
+    "allure-pytest==2.16.0",
 ]
 
 [tool.pytest.ini_options]
@@ -73,6 +74,17 @@ markers = [
 #                           per-type split; settings.py's three separate
 #                           *_dir properties remain as computed values,
 #                           unchanged, not yet wired to this flag.
+#   --alluredir=reports/allure-results   Allure result-collection foundation
+#                           (Phase 1 of the Allure adoption that formally
+#                           supersedes ADR-3's original "no Allure" decision,
+#                           docs/11-Framework-Architecture.md §42 — reversal
+#                           trigger already anticipated there: "if richer
+#                           cross-run trend analysis is ever genuinely
+#                           needed"). Purely additive: writes raw per-test
+#                           JSON result files alongside the existing
+#                           pytest-html report, does not replace or alter it.
+#                           No Allure HTML generation, history, or trends are
+#                           wired yet — that is a distinct, later phase.
 addopts = """
     --strict-markers
     --browser=chromium
@@ -81,4 +93,5 @@ addopts = """
     --output=reports/artifacts
     --html=reports/html/report.html
     --self-contained-html
+    --alluredir=reports/allure-results
 """
