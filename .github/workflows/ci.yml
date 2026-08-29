@@ -365,9 +365,14 @@ jobs:
       - name: Install Playwright (all engines)
         run: python -m playwright install --with-deps chromium firefox webkit
 
+      # TEMPORARY — STEP 18 CI parallel-execution validation only. -n 2 is
+      # NOT a permanent part of this job; will be reverted in a follow-up
+      # commit immediately after this validation run is inspected. --dist
+      # is inherited from pyproject.toml's addopts (=loadgroup), unaffected
+      # since this step does not use --override-ini.
       - name: Full project validation (all currently collected tests, no marker filter)
         run: >
-          python -m pytest -v
+          python -m pytest -n 2 -v
           --html=reports/html/full-validation.html --self-contained-html
 
       # Same isolation as every other job above: neither step can ever
