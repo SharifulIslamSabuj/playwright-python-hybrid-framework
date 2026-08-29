@@ -271,6 +271,7 @@ def shared_registered_account(
             )
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """Orders the shared-account lifecycle correctly across modules, which
     plain pytest file/definition-order collection cannot guarantee on its
@@ -283,7 +284,38 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     A stable sort keyed by lifecycle phase: any item NOT using
     `shared_registered_account` is phase 1 (unaffected — Python's stable
     sort preserves its original relative position among other phase-1
-    items, so no unrelated test's ordering changes)."""
+    items, so no unrelated test's ordering changes).
+
+    STEP 18 (parallel execution) addition: every item that uses
+    `shared_registered_account` also gets `pytest.mark.xdist_group` with a
+    shared group name. `shared_registered_account` is session-scoped, which
+    under pytest-xdist means scoped to one WORKER's session, not the whole
+    run — each xdist worker is a separate process. Without this group
+    marker, `-n`'s default "load" distribution could split these 8 tests
+    across different workers, each independently triggering its own copy of
+    the fixture: multiple real accounts created, and this sort's
+    create-first/delete-last ordering only honored *within* whichever
+    worker happens to run AE-API-TC-011/012, not across the whole session.
+    `xdist_group` forces every item sharing a group name onto the same
+    worker (pytest-xdist's own documented mechanism for exactly this
+    "fixture must not cross worker boundaries" case), so the single-shared-
+    account model and this function's own ordering guarantee both continue
+    to hold under `-n`, exactly as they already do sequentially. Only takes
+    effect when the run actually uses `--dist=loadgroup` (wired into
+    `pyproject.toml`'s `addopts`, harmless when `-n` is absent); with no
+    `-n` at all, adding a marker with no distribution behind it is a no-op.
+
+    `@pytest.hookimpl(tryfirst=True)` is REQUIRED here, not defensive
+    boilerplate — confirmed empirically, not assumed: a first real `-n 2`
+    run without it showed the 8 dependent tests split across both workers
+    anyway, because `xdist_group`'s actual grouping mechanism
+    (`xdist/remote.py::WorkerInteractor.pytest_collection_modifyitems`,
+    verified by reading the installed package's own source) works by
+    appending `@groupname` onto each marked item's `nodeid` — and it ran
+    on the SAME worker process *before* this function's plain (no
+    `tryfirst`) hook had added the marker, so it saw nothing to group.
+    `tryfirst=True` guarantees this function runs first, so the marker
+    exists by the time xdist inspects it."""
 
     def _phase(item: pytest.Item) -> int:
         if "shared_registered_account" not in getattr(item, "fixturenames", ()):
@@ -295,6 +327,10 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         return 1
 
     items.sort(key=_phase)
+
+    for item in items:
+        if "shared_registered_account" in getattr(item, "fixturenames", ()):
+            item.add_marker(pytest.mark.xdist_group(name="shared_registered_account"))
 
 
 # ---------------------------------------------------------------------------

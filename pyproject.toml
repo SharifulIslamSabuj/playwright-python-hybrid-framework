@@ -85,6 +85,21 @@ markers = [
 #                           pytest-html report, does not replace or alter it.
 #                           No Allure HTML generation, history, or trends are
 #                           wired yet — that is a distinct, later phase.
+#   --dist=loadgroup        STEP 18 (parallel execution): a no-op unless `-n`
+#                           is also passed on the command line — pytest-xdist
+#                           only activates distribution/scheduling when `-n`
+#                           is present, so sequential `pytest` is completely
+#                           unaffected by this flag. When `-n` IS used,
+#                           `loadgroup` is required for the
+#                           `pytest.mark.xdist_group("shared_registered_account")`
+#                           marker (tests/conftest.py, `pytest_collection_
+#                           modifyitems`) to actually keep the 8 account-
+#                           lifecycle-dependent tests on one worker — the
+#                           default "load" distribution mode ignores
+#                           `xdist_group` entirely. Parallel execution itself
+#                           stays opt-in: this only configures *how*
+#                           distribution behaves the one time it's invoked
+#                           via `-n`, it does not turn `-n` on by default.
 addopts = """
     --strict-markers
     --browser=chromium
@@ -94,4 +109,5 @@ addopts = """
     --html=reports/html/report.html
     --self-contained-html
     --alluredir=reports/allure-results
+    --dist=loadgroup
 """
