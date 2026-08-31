@@ -400,3 +400,107 @@ jobs:
             reports/allure-report/
           retention-days: 14
           if-no-files-found: ignore
+
+  # Full Cross-Browser Validation (STEP 19 Phase 7): the target 3-browser
+  # xdist matrix — Chromium + Firefox + WebKit, each running the full
+  # collected suite in parallel via pytest-xdist, isolated report/artifact
+  # output per leg (docs/19-CI-CD.md Phase 6 design). Deliberately a NEW,
+  # separate job, not an extension of release_validation (which stays
+  # scoped to its fast curated cross_browser subset for firefox/webkit — a
+  # different, already-working purpose, left untouched here) and not a
+  # modification of full_project_validation (which stays single-browser,
+  # sequential, all-engines-installed — the one place
+  # test_setup_validation.py's requires_all_browsers check can actually
+  # pass, since it directly launches all 3 engines regardless of
+  # --browser).
+  #
+  # -m "not requires_all_browsers": each leg below installs exactly ONE
+  # browser (separate-runner-VM isolation already makes installing 3
+  # binaries to use 1 unnecessary), so test_playwright_browser_launches's
+  # other two parametrized variants would fail here for lack of an
+  # installed executable — a false cross-browser-compatibility signal, not
+  # a real one (found during this implementation). That check's real home
+  # remains full_project_validation, unaffected by this job. Effective
+  # collected-node count per leg is therefore 58, not 61 — disclosed here
+  # rather than silently implied as "all 61".
+  full_cross_browser_validation:
+    name: Full Cross-Browser Validation (${{ matrix.browser }})
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    env:
+      # Same gate as nightly_regression/full_project_validation above:
+      # this job also runs the account-lifecycle business cases.
+      ACCOUNT_CREATION_EXECUTION_AUTHORIZED: ${{ secrets.ACCOUNT_CREATION_EXECUTION_AUTHORIZED }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: "Install dependencies (single source of truth: pyproject.toml)"
+        run: |
+          python -m pip install --upgrade pip
+          pip install $(python -c "import tomllib; print(' '.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))")
+
+      # Exactly one engine per leg — separate runner VMs already provide
+      # full isolation, so there is no reason to install all 3 binaries to
+      # exercise 1 (unlike full_project_validation above, which genuinely
+      # needs all 3 in one job).
+      - name: Install Playwright browser (${{ matrix.browser }})
+        run: python -m playwright install --with-deps ${{ matrix.browser }}
+
+      # --override-ini, not a bare --browser flag: the same proven,
+      # already-documented accumulation-bug fix release_validation uses
+      # above (GitHub Actions run 33027459633) — a bare --browser=X CLI
+      # flag ACCUMULATES with pyproject.toml's own baked-in
+      # "--browser=chromium" addopts entry rather than replacing it.
+      # --dist=loadgroup is explicitly reconstructed here (STEP 18,
+      # tests/conftest.py's tryfirst=True collection hook depends on it
+      # being present whenever -n is used) — release_validation's own
+      # overrides omit it safely today only because that job never passes
+      # -n; this job does, so it must be present. -m "not
+      # requires_all_browsers" per the job-level comment above.
+      - name: Full cross-browser suite (${{ matrix.browser }}, xdist)
+        run: >
+          python -m pytest -v -m "not requires_all_browsers"
+          --override-ini="addopts=--strict-markers --screenshot=only-on-failure --tracing=retain-on-failure --output=reports/artifacts/${{ matrix.browser }} --alluredir=reports/allure-results/${{ matrix.browser }} --dist=loadgroup --browser=${{ matrix.browser }}"
+          -n 2
+          --reruns 2 --reruns-delay 3
+          --html=reports/html/${{ matrix.browser }}/report.html --self-contained-html
+
+      # Same isolation as every other job above: neither step can ever
+      # flip this job's pass/fail signal, which stays tied solely to the
+      # pytest step's own exit code.
+      - name: Install Allure CLI
+        if: always()
+        continue-on-error: true
+        run: npm install -g allure-commandline@2.39.0
+
+      - name: Generate Allure HTML report (${{ matrix.browser }})
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -d "reports/allure-results/${{ matrix.browser }}" ] && [ -n "$(ls -A reports/allure-results/${{ matrix.browser }} 2>/dev/null)" ]; then
+            allure generate "reports/allure-results/${{ matrix.browser }}" --clean -o "reports/allure-report/${{ matrix.browser }}"
+          else
+            echo "No Allure results found — skipping report generation."
+          fi
+
+      - name: Upload test evidence (${{ matrix.browser }})
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-cross-browser-validation-${{ matrix.browser }}-${{ github.run_id }}
+          path: |
+            reports/html/${{ matrix.browser }}/
+            reports/artifacts/${{ matrix.browser }}/
+            reports/allure-results/${{ matrix.browser }}/
+            reports/allure-report/${{ matrix.browser }}/
+          retention-days: 14
+          if-no-files-found: ignore
