@@ -6,6 +6,7 @@ A hybrid UI + API + E2E test automation framework for [automationexercise.com](h
 ![Python](https://img.shields.io/badge/Python-%3E%3D3.11-blue)
 ![Playwright](https://img.shields.io/badge/Playwright-1.62.0-2EAD33)
 ![pytest](https://img.shields.io/badge/pytest-9.1.1-0A9EDC)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
@@ -475,7 +476,9 @@ GitHub: [@SharifulIslamSabuj](https://github.com/SharifulIslamSabuj)
 
 ## License
 
-No license file is currently present in this repository. All rights are reserved by the author unless and until a license is explicitly added.
+This project is licensed under the **MIT License**.
+
+See the [MIT License](LICENSE) file for the complete license text.
 
 ---
 
