@@ -257,3 +257,268 @@ Approval of this exit criterion by the QA Lead is required before proceeding to 
 | Prepared By | AI Assistant (advisory, acting as Test Automation Engineer) | Complete — pending review | 2026-08-27 |
 | Reviewed By | QA Lead | Pending | — |
 | Approved By | QA Lead | Pending | — |
+
+## 17. Post-Approval Addendum — Allure CI Integration (2026-08-27)
+
+**Disclosed, not a silent correction.** Sections 1–16 above describe the CI/CD state through this session's Steps 4–9. Allure reporting was implemented after that, in a separate, later set of changes — this addendum documents it without rewriting anything above.
+
+**Every pytest-executing job now follows this sequence, added purely additively:**
+
+```
+pytest execution
+  ↓
+Allure raw result generation (reports/allure-results/) — inherited automatically via
+  pyproject.toml addopts in every job except release_validation, whose --override-ini
+  string explicitly re-adds --alluredir=reports/allure-results (it replaces addopts
+  wholesale, same mechanism as the existing browser-flag fix)
+  ↓
+Allure CLI installation (allure-commandline@2.39.0, official npm distribution —
+  not a third-party GitHub Action)
+  ↓
+Allure HTML generation (allure generate reports/allure-results --clean -o reports/allure-report,
+  guarded: skipped with a log message, not an error, if no results exist)
+  ↓
+Upload test evidence (existing actions/upload-artifact@v4 step, extended — not replaced)
+```
+
+**Four report/evidence locations are now uploaded in every job's evidence artifact:** `reports/html/` (pytest-html, unchanged), `reports/artifacts/` (Playwright screenshots/traces, unchanged), `reports/allure-results/` (new), `reports/allure-report/` (new). None of the pre-existing three were removed or altered.
+
+**Job-result semantics, verified by real execution, not assumed:** the two new steps (`Install Allure CLI`, `Generate Allure HTML report`) carry `if: always()` (so they still run after a test failure — a report is still produced) and `continue-on-error: true` (so neither can ever flip the job's pass/fail signal). A real controlled GitHub Actions failure (run `33088035585`) confirmed this exactly: the pytest step failed, the job's overall conclusion was `failure`, and both Allure steps independently completed with `conclusion: success` — the failure was never masked, and Allure tooling never became the pass/fail authority.
+
+**No GitHub Pages publishing and no cross-run history are configured.** Each run's Allure report is generated fresh (`--clean`) and uploaded as a standalone artifact with the same 14-day retention as the rest of the evidence — this was a deliberate scope boundary (evaluated and rejected: a third-party publishing Action, since most such Actions' core value proposition is history via `gh-pages`, which was out of scope here), not an oversight.
+
+**Failure evidence flow, confirmed end-to-end by a real controlled CI failure:** a genuine pytest failure → Playwright screenshot (`test-failed-1.png`) + `trace.zip` written to `reports/artifacts/` (unchanged mechanism) → both attached to the corresponding failed test's Allure data (via `tests/conftest.py`, during fixture teardown — see [docs/21 §18](21-Reporting-Observability.md)) → `pytest-html`'s pre-existing Links column still links to both files independently → all evidence preserved in the uploaded CI artifact. Verified by downloading and directly inspecting the real artifact, not inferred from workflow YAML.
+
+**`Jenkinsfile`/`azure-pipelines.yml` were not updated** — consistent with §16's already-disclosed gap (neither platform has ever been externally executed), this Allure work adds no new divergence beyond what was already open.
+
+| Role | Name | Status | Date |
+|---|---|---|---|
+| Prepared By | AI Assistant (advisory, acting as Test Automation Engineer) | Complete — pending review | 2026-08-27 |
+| Reviewed By | QA Lead | Pending | — |
+| Approved By | QA Lead | Pending | — |
+
+## 18. Post-Approval Addendum — Full Cross-Browser CI Matrix Baseline (2026-08-31)
+
+**Disclosed, not a silent correction.** Sections 1–17 above remain exactly as originally approved. This addendum documents an entirely new job, `full_cross_browser_validation`, added additively to `ci.yml` and validated through a dedicated multi-phase real-execution campaign (local design/implementation phases followed by real GitHub Actions validation across 5 independent triggers spanning 15 browser-leg executions). It does not modify or supersede anything in Sections 1–17 — `pr_main_regression`, `nightly_regression`, and `release_validation` are untouched.
+
+### 18.1 What This Job Is
+
+A `workflow_dispatch`-triggered job that runs the **entire collected test suite** (minus the 3 `requires_all_browsers`-marked infra-only nodes, which need all 3 engines in one job and remain `full_project_validation`'s exclusive responsibility) against **all three Playwright browsers**, in parallel, per browser:
+
+```
+matrix.browser: [chromium, firefox, webkit]    fail-fast: false
+    │
+    ├── install exactly one browser binary per leg (separate runner VM per leg)
+    ├── python -m pytest -v -m "not requires_all_browsers"
+    │     --override-ini="addopts=...--dist=loadgroup --browser=${{ matrix.browser }}"
+    │     -n 2
+    │     --reruns 2 --reruns-delay 3
+    │     --html=reports/html/${{ matrix.browser }}/report.html
+    ├── Allure raw results  → reports/allure-results/${{ matrix.browser }}/
+    ├── Allure generated report → reports/allure-report/${{ matrix.browser }}/
+    └── upload-artifact: full-cross-browser-validation-${{ matrix.browser }}-${{ github.run_id }}
+```
+
+Collected count per leg is **58**, not 61 — `61 − 3 (requires_all_browsers) = 58`, real and consistent across every real-CI run observed. Browser selection uses the same `--override-ini` mechanism §247 already established for `release_validation` (a bare `--browser=X` accumulates with `pyproject.toml`'s baked-in `chromium` default rather than replacing it) — re-verified with zero accumulation in every real run checked.
+
+### 18.2 Shared-Account Safety Under This Matrix
+
+`tests/conftest.py`'s `shared_registered_account` fixture (session-scoped) and its `pytest_collection_modifyitems` hook are **unmodified** by this work — this section documents their proven behavior under the new matrix, not a change to them.
+
+- **Creator**: `test_ae_api_tc_011_create_account` — sorted first among the 8 account-lifecycle tests.
+- **Dependents** (6): `test_ae_api_tc_007_verify_login_valid_credentials`, `test_ae_api_tc_014_get_user_detail_by_email`, `test_ae_ui_tc_005_login_with_valid_credentials`, `test_ae_ui_tc_007_logout_from_authenticated_session`, `test_ae_ui_tc_008_register_with_already_registered_email`, `test_ae_ui_tc_021_search_add_to_cart_persists_after_login`.
+- **Deleter**: `test_ae_api_tc_012_delete_account` — sorted last.
+
+Two mechanisms make this safe under `-n 2`, both load-bearing:
+
+1. **`@pytest.hookimpl(tryfirst=True)`** on the ordering hook — required because `pytest-xdist`'s own `WorkerInteractor.pytest_collection_modifyitems` (which encodes `xdist_group` into each item's nodeid) runs in the same worker process and, without `tryfirst`, could run *before* this project's own hook has added the marker, seeing nothing to group (STEP 18's own empirically-discovered finding, unchanged, re-verified every real-CI run this addendum covers).
+2. **`xdist_group(name="shared_registered_account")`**, applied to all 8 dependent items — forces them onto one worker, since the fixture is session-scoped *per worker process*, not per whole run.
+
+**Real-CI evidence** (not local-only): in every real run checked — Phase 11 (1 run), Phase 13.1 (1 run), Phase 15 (3 runs) — all 8 tagged nodes appeared on `[gw0]` in the console log, creator first, deleter last, zero exceptions across 15 independent leg-executions. No account-related failure, corruption, or orphaned state was observed in any real CI run.
+
+### 18.3 Retry Behavior — What Is Actually Proven
+
+`--reruns 2 --reruns-delay 3` is the same bounded-retry policy Section 9 already established for the other jobs, reused here unchanged.
+
+**PROVEN by real GitHub Actions execution** (not inferred): a genuine first-attempt failure, retried, and passed. On 2026-08-31, WebKit's `test_ae_ui_tc_011_view_all_products_and_product_details[webkit]` failed on attempt 1 (`AssertionError: Locator expected to be visible`, `.product-information h2`, 5000ms timeout — the exact known signature, §18.5), was retried (`RERUN` in the console log), and passed on attempt 2. Verified end-to-end: raw Allure recorded **two** result entries for this test (one `"status": "failed"`, one `"status": "passed"`, ~13s apart) — 59 raw files instead of 58 for that one leg — while the **generated** Allure report correctly reconciled this back to `total: 58`, showing the test in its final, passed state. Real screenshot (368,622 bytes) and a real, valid trace archive (independently verified with Python's `zipfile.testzip()` — zero corruption, 126 entries) for the failed first attempt were both uploaded in that run's WebKit artifact, and confirmed absent from the Chromium/Firefox artifacts of the same run.
+
+**NOT PROVEN**: behavior when a test fails through *all* retry attempts and the leg genuinely fails as a result. No such event has occurred in any real CI run of this job to date. This is an explicit, disclosed evidence limitation — not assumed, not claimed, not manufactured.
+
+### 18.4 Reporting & Artifact Flow
+
+The evidence chain is the same one [docs/21 §18](21-Reporting-Observability.md) already documents (`pytest → raw Allure → generated Allure → pytest-html → GitHub artifact`), now additionally proven **browser-scoped and running 3× concurrently** without cross-contamination:
+
+- Every path (`reports/{artifacts,allure-results,allure-report,html}/${{ matrix.browser }}`) and the artifact name itself (`full-cross-browser-validation-${{ matrix.browser }}-${{ github.run_id }}`) carries the browser token — confirmed unique per leg, per run, via the GitHub Artifacts API, in every run checked.
+- **Zero cross-browser contamination** found in any explicit check performed (Allure JSON `browser_name`/node-id, generated-report `data/` contents, HTML content, artifact directory structure) — this is one of the most heavily re-verified claims in the project's history at this point.
+- **Clean-run artifact contents**: `allure-results/<browser>/`, `allure-report/<browser>/`, `html/<browser>/` only — no `artifacts/<browser>/` (screenshots/traces) directory, correctly, since `if-no-files-found: ignore` omits it when nothing failed.
+- **Failure-run artifact contents**: the above three, plus `artifacts/<browser>/` containing the real screenshot/trace, only for the browser(s) that actually failed — confirmed by direct example (§18.3).
+- **Video**: absent in every run checked, by design (no `--video` flag anywhere in the effective command) — never a defect, never enabled by this work.
+
+### 18.5 Known-Risk Register
+
+**WebKit `TC-011`** (`test_ae_ui_tc_011_view_all_products_and_product_details[webkit]`) — **classification: Intermittent WebKit-specific compatibility/timing risk — root cause not conclusively proven.** Signature: `AssertionError: Locator expected to be visible`, locator `.product-information h2`, `to_be_visible` timeout 5000ms, `Error: element(s) not found`. Evidence spans local isolation runs (mixed pass/fail across many independent sessions) and real CI (multiple clean passes; one real fail→retry→pass event, §18.3). **Not marked resolved by any passing run — including the one that passed via retry.** Do not increase its timeout, add a wait, change its selector, or add a test-specific retry without new root-cause evidence.
+
+**Firefox context-teardown race** — signature `Playwright.../Protocol error (Browser.removeBrowserContext): can't access property "_maybeDontRestoreTabs", this._windows[aWindow.__SSi] is undefined`, surfacing as an Allure `broken`-status teardown-phase error (not a `failed` assertion). **Historical occurrence: one local session only.** Not reproduced in any subsequent local run or any real CI run of this job. Not called fixed (no code change was ever made to address it); not called an active/deterministic defect (it has not recurred despite many further opportunities to).
+
+**Persistent failure after exhausting all retries** — **classification: NOT PROVEN / NOT OBSERVED.** No real CI run of this job has ever failed a leg after retries were exhausted. This is an evidence limitation to be closed opportunistically by future real usage, not something to manufacture.
+
+**OBS-001-class environmental instability** (`httpx.ReadError`/`ConnectError`/`WinError 10054`, `NS_ERROR_ABORT`, `SSL connect error`, Cloudflare 522, `ERR_CONNECTION_RESET`/`ERR_SOCKET_NOT_CONNECTED`) — observed extensively in **local** execution sessions and, separately, in a **sibling job** (`release_validation`) during two different real-CI trigger events. **Never observed in this job's own real-CI executions to date.** Sibling-job failures are disclosed for transparency but are not treated as evidence about this job's own reliability absent a direct causal link.
+
+### 18.6 Failure Triage Guide
+
+When a leg of this job fails, classify using the exact signature before acting — do not default to any single category:
+
+| Category | Signal | Action |
+|---|---|---|
+| **A — Assertion failure** | `AssertionError` in test body, product/page content did not match expectation | Investigate as a potential product or test-data issue; do not assume browser-specific |
+| **B — Fixture/setup/teardown error** | Allure `status: "broken"`, error outside the test's own `assert`/`expect` call (e.g., during `context.close()`, fixture setup) | Investigate separately from assertion failures — often browser/driver-level, not test-logic |
+| **C — WebKit `TC-011`** | Exact signature in §18.5, WebKit only | Compare the exact signature before classifying; do not assume every WebKit failure is this known risk, and do not assume a WebKit pass means it's fixed |
+| **D — OBS-001/environmental** | Any signature listed in §18.5's environmental row, on **any** browser or layer (API or UI) | Confirm via reproducibility (rerun in isolation) and cross-test/cross-browser breadth (same signature on unrelated tests = environmental, not a single test's defect) before classifying — never classify solely because "a test failed" |
+| **E — Retry event** | Console shows `RERUN`, final result is `passed` | The final `PASSED` is real, but the underlying first-attempt failure is real too — record and compare its signature against the known-risk register; a pass-via-retry never erases a historical intermittent event from the record |
+
+### 18.7 Operational Runbook
+
+1. Trigger via `workflow_dispatch` (`gh workflow run CI --ref main` or the GitHub UI).
+2. Confirm all 3 `Full Cross-Browser Validation (<browser>)` jobs appear and run independently (`fail-fast: false` — one leg failing must not cancel the others).
+3. Confirm each leg's console shows `2 workers [58 items]` — if the collected count differs from 58, investigate before trusting the run's results.
+4. Confirm `created: 2/2 workers` and `scheduling tests via LoadGroupScheduling` when investigating xdist-related behavior specifically.
+5. Read each leg's final pytest summary line (`N passed, M skipped, ...`).
+6. Check for any `RERUN` line — note it even if the final result is green (§18.6, Category E).
+7. Download the relevant browser's artifact (`full-cross-browser-validation-<browser>-<run_id>`) — never assume another browser's artifact is relevant.
+8. If investigating a failure, inspect the raw Allure JSON in `allure-results/<browser>/` first — it has the most precise `statusDetails`.
+9. Cross-check against the generated Allure report (`allure-report/<browser>/`) for a human-readable view.
+10. Cross-check the `html/<browser>/report.html` for a third, independent view of the same result.
+11. If a screenshot/trace exists under `artifacts/<browser>/`, inspect it before forming a conclusion.
+12. Compare the exact failure signature against §18.5's risk register before classifying.
+13. Do not modify test/framework/CI code until the evidence supports a specific, justified change — an intermittent risk observed once is not, by itself, grounds for a fix.
+
+### 18.8 Components Validated — Change Only With Re-Validation
+
+| Component | Why it matters | Re-validation required if changed |
+|---|---|---|
+| Browser matrix (`[chromium, firefox, webkit]`) | The 15-leg real-CI evidence base is specific to these 3 engines | Re-prove matrix expansion, browser selection, and isolation for any added/removed engine |
+| `--override-ini` browser-selection mechanism | Prevents a real, previously-occurring browser-accumulation bug (§247) | Re-check for zero accumulation on every leg |
+| `-n 2` | The specific worker count actually observed in every real run | A different count needs its own real-CI proof, not an assumed linear scale-up |
+| `--dist=loadgroup` | Required for `xdist_group` to function at all; silent failure mode if removed | Re-verify shared-account grouping under `-n` |
+| `@pytest.hookimpl(tryfirst=True)` (STEP 18) | Empirically-required; its absence silently reintroduces cross-worker account-test splitting with no visible error until it corrupts a run | Re-run a real `-n 2` execution and confirm `[gwN]` grouping directly from the console |
+| `shared_registered_account` grouping | The entire disposable-account safety model depends on it | Re-verify creator-first/deleter-last/same-worker under `-n` |
+| Retry policy (`--reruns 2 --reruns-delay 3`) | Determines what failure classes get silently absorbed into a green result | Re-assess which risks the new values would mask |
+| Browser-scoped report paths | Prevents 3 concurrent legs from colliding | Re-run the 6-direction contamination check |
+| Browser-scoped artifact names | Same reasoning, at the GitHub-artifact level | Re-confirm uniqueness via the Artifacts API |
+| Allure generation step (`if [ -d ... ] && [ -n "$(ls -A ...)" ]` guard, `--clean`) | Load-bearing for correct per-leg isolation | Re-check raw-vs-generated reconciliation |
+| Artifact upload step (path list, `if-no-files-found: ignore`) | Changing the path list can silently drop an evidence type with no error | Re-confirm all 4 evidence types still upload correctly |
+| `ACCOUNT_CREATION_EXECUTION_AUTHORIZED` gate | The sole mechanism preventing unauthorized real account creation in CI | Treat as a security-relevant change requiring explicit re-authorization, not just re-testing |
+
+### 18.9 Explicit Anti-Patterns
+
+- Do not remove `--dist=loadgroup` casually — it silently breaks account-lifecycle safety with no immediate visible symptom.
+- Do not change worker count without a fresh real-CI validation.
+- Do not remove `tryfirst=True` — reintroduces STEP 18's original, empirically-confirmed grouping bug.
+- Do not move the account creator/deleter tests arbitrarily — their ordering is enforced by the collection hook, not file position, but the hook's own phase logic assumes their exact function names.
+- Do not remove browser-specific report paths, or merge artifacts from different browsers manually.
+- Do not treat a retry-pass as proof the underlying test is fixed (§18.3/§18.6 Category E).
+- Do not classify every WebKit failure as a framework bug, or every connection error as a browser bug — always compare the exact signature first (§18.6).
+- Do not delete or overwrite failure evidence before it has been analyzed.
+- Do not introduce a new retry count without re-validating what failure classes it would newly mask or newly expose.
+
+### 18.10 Final Readiness Classification
+
+**READY WITH KNOWN INTERMITTENT RISK.** Every mechanism this job is itself responsible for — matrix expansion, browser selection, collection, xdist worker/scheduling, shared-account grouping, retry handling, Allure/HTML reporting, artifact naming/upload/isolation, cross-browser isolation — has been proven correct and consistent across 5 independent real GitHub Actions triggers and 15 browser-leg executions, including under the one real failure observed to date. The known, unresolved risk is WebKit `TC-011`'s intermittency; the known, disclosed evidence gap is real-CI behavior on a test that fails through all retries. Neither is treated as blocking; neither is hidden.
+
+| Role | Name | Status | Date |
+|---|---|---|---|
+| Prepared By | AI Assistant (advisory, acting as Test Automation Engineer) | Complete — pending review | 2026-08-31 |
+| Reviewed By | QA Lead | Pending | — |
+| Approved By | QA Lead | Pending | — |
+
+## 19. Post-Approval Addendum — STEP 20 Operationalization & Maintenance Handoff (2026-08-31)
+
+**Disclosed, not a silent correction.** Sections 1–18 remain exactly as originally approved; nothing in them is rewritten. STEP 19 (§18) validated the `full_cross_browser_validation` architecture; this addendum operationalizes it for day-to-day use and future maintenance. Where §18 already covers a topic in full (the operational runbook §18.7, the failure triage table §18.6, the change-control table §18.8/§18.9), this addendum cross-references it rather than duplicating it, and adds only what §18 does not yet cover: the operational distinction between all 5 real CI jobs, browser/toolchain upgrade procedure, proportional re-validation rules, and a single final operational-baseline statement.
+
+### 19.1 CI Operational Runbook
+
+Already documented in full at **§18.7** — trigger, matrix-leg verification, collection-count check (58), worker/scheduling evidence, retry-line check, artifact download, Allure/HTML/screenshot/trace inspection order, and the "do not modify until evidence supports it" closing rule. Re-read and re-confirmed accurate against the live `ci.yml` this addendum (§19, re-verified below). Nothing added here beyond one practical addition:
+
+**What a normal successful `full_cross_browser_validation` run looks like** (re-confirmed against real evidence, not assumed): 3 green legs, each console ending in `NN passed, 1 skipped in ...s` (58 collected, 1 expected skip — `test_durable_valid_account_fixture_returns_configured_credentials`, correctly skipped in CI since no durable credentials are configured there), `created: 2/2 workers` and `scheduling tests via LoadGroupScheduling` present in every leg's log, 3 uniquely-named artifacts (`full-cross-browser-validation-<browser>-<run_id>`) uploaded, zero `RERUN` lines. Any deviation from this shape is the trigger to consult §18.6/§19.3.
+
+### 19.2 PR / Main CI Workflow Operations
+
+Re-read directly from `.github/workflows/ci.yml` this addendum (`on:` block, lines 16–30; each job's own `if:`), not assumed from earlier phases:
+
+| Job | Trigger (`if:`) | Purpose | Blocking? |
+|---|---|---|---|
+| `pr_main_regression` | `pull_request → main` or `push → main` | Chromium-only regression gate on every PR and every merge to `main` (docs §6) | **Yes** — this is the actual PR/merge gate |
+| `nightly_regression` | `schedule` (`0 2 * * *`, daily) | Full regression including `ci_restricted` cases, Chromium only — environment/AUT-availability canary, independent of code changes (docs §7, §120) | No (unattended; investigate failures, don't block on them retroactively) |
+| `release_validation` | `workflow_dispatch` | Chromium full regression + Firefox/WebKit curated `cross_browser` subset (docs §6, §64) — manual, pre-release-style check | No (manual, informational) |
+| `full_project_validation` | `workflow_dispatch` | All 61 collected nodes, no marker filter, single-browser (Chromium) execution — the only job exercising `requires_all_browsers` (docs §243) | No (manual, informational) |
+| `full_cross_browser_validation` | `workflow_dispatch` | **STEP 19's own job** — full 58-node suite × 3 browsers × `-n 2` (§18) | No (manual; not wired into the PR/merge gate — see §19.7) |
+
+**What engineers should inspect on a failure**: for `pr_main_regression`/`nightly_regression`, the single Chromium job's own console + `pytest-html`/Allure artifact (pre-existing mechanism, docs §9/§17 — unaffected by STEP 19). For `full_cross_browser_validation`, follow §18.7's runbook per failing leg. **Which failures are blocking**: only `pr_main_regression`'s own failure blocks a PR/merge — the other four jobs are manual or scheduled and inform, not gate. **Known intermittent risks to check before treating as a defect**: WebKit `TC-011` (§18.5) if the failing leg is WebKit and the signature matches exactly; the Firefox teardown-race signature (§18.5) if a Firefox leg shows a `broken`-status teardown-phase error; any OBS-001 signature (§18.5) on any leg/layer.
+
+**Finding, not a fix**: `full_cross_browser_validation` is `workflow_dispatch`-only — it does not run on every PR or merge. This is exactly how Phase 6/7 designed it (a deliberate scope boundary, not an oversight — §18.1's own design rationale). Documented here as a fact for operational awareness, not flagged as a defect requiring a change.
+
+### 19.3 CI Failure Triage
+
+Already documented in full at **§18.6** (Categories A–E: assertion failure, fixture/teardown error, WebKit `TC-011`, OBS-001/environmental, retry event) — each with its identifying signal and required action. No new category introduced. Restated compactly per this phase's own required format:
+
+| Category | Signal | First action | Rerun appropriate? | Preserve evidence? | Possible framework defect? | Escalate? |
+|---|---|---|---|---|---|---|
+| A — Assertion failure | `AssertionError` in test body | Read the exact assertion + page/response content | Yes, once, to check reproducibility | Yes | Possibly — investigate signature first | If reproducible and signature is new |
+| B — Fixture/teardown error | Allure `status: "broken"`, error outside `assert`/`expect` | Identify which fixture/step failed | Yes | Yes | Possibly, or driver/browser-level (§18.5 Firefox race) | If reproducible |
+| C — WebKit `TC-011` | Exact signature: `.product-information h2`, 5000ms timeout, `element(s) not found` | Compare byte-for-byte against §18.5's signature | Already covered by `--reruns 2` | Yes (screenshot/trace) | No — known, classified risk unless signature differs | Only if signature differs from the established one |
+| D — OBS-001/environmental | Any signature in §18.5's environmental list, any browser/layer | Check reproducibility + breadth (same signature, different tests) | Yes | Yes | No, if breadth/reproducibility confirm environmental | Only if it starts appearing inside the target job's own real-CI runs (not yet observed, §18.5) |
+| E — Retry event | Console `RERUN`, final `passed` | Record it even though the job is green | N/A — already happened | Yes, both attempts' evidence if available | No, by itself | No — but log for pattern-tracking against §18.5 |
+
+**Never** default every failure to environmental, and **never** default every failure to a framework defect — classification follows the exact signature and available evidence, per §18.6's own explicit instruction, unchanged here.
+
+### 19.4 Browser / Playwright Upgrade Rules (new)
+
+No upgrade has been performed. This section defines the **future procedure only**.
+
+| Change | Why it matters | Minimum re-validation | Evidence to check | Compare against |
+|---|---|---|---|---|
+| Playwright version bump | Changes the underlying browser-automation protocol and bundled browser binaries simultaneously | A read-only collection check (`58` still expected) + one real `workflow_dispatch` run of `full_cross_browser_validation`, all 3 legs | Console `2/2 workers`/`LoadGroupScheduling` lines, pass/fail/skip counts, any new failure signature | The current baseline in §18.1/§18.2 (58 collected, `[gw0]` grouping) and §18.5's risk register |
+| Chromium/Firefox/WebKit engine version change (via a Playwright bump, since engines are bundled, not independently pinned) | Any of these could change TC-011's or the Firefox teardown-race's frequency, or introduce a new signature | Same as above, with particular attention to the affected browser's own leg | That leg's exact failure signature, if any | §18.5's exact recorded signatures — a **different** signature is new evidence, not a continuation of the known risk |
+| Python version change | Affects the runner's interpreter, not the test logic, but can affect `tomllib`/dependency-install behavior (docs §130/§133) | Confirm `python -m pytest` still resolves imports correctly (a collection-only check is sufficient) | Collection succeeds, no import error | N/A — this is a install/environment-level check, not a behavior re-validation |
+| pytest / pytest-xdist version change | Could change scheduling behavior, marker handling, or the `tryfirst=True` interaction (§18.2's own empirically-discovered mechanism) | A real `-n 2` run with explicit console verification of `[gwN]` grouping for the 8 shared-account tests | `created: 2/2 workers`, `LoadGroupScheduling`, `[gw0]` grouping identical to §18.2 | STEP 18's own original grouping-bug history — re-run the exact check that first caught it |
+
+**Acceptance criterion for any upgrade**: no new failure signature appears outside the already-documented risk register (§18.5), and the shared-account grouping/ordering evidence remains identical in shape to what's already established. A different WebKit or Firefox failure signature than the ones on record is **new evidence requiring its own investigation**, not an extension of the existing accepted risk.
+
+### 19.5 Controlled CI Change Protocol
+
+Already documented in full at **§18.8** (12-component table: why each matters, what to re-validate) and **§18.9** (explicit anti-pattern list). Restated as the governing principle, unchanged: **VALIDATED — CHANGE ONLY WITH RE-VALIDATION.** No new component added to the list; no existing entry weakened.
+
+### 19.6 Re-Validation Rules — Proportionality (new)
+
+§18.8 defines *what* to re-check per component; this section adds *how much* validation is proportional to the kind of change:
+
+| Change class | Example | Required validation |
+|---|---|---|
+| Documentation-only | Fixing a typo in this file, adding a cross-reference | None — no code/CI touched |
+| Non-load-bearing CI change | Adding a new unrelated job, changing a job's `name:` display string, adjusting `timeout-minutes` generously upward | Confirm the changed job itself runs correctly once; no need to re-run the full STEP 19 campaign |
+| Load-bearing CI change | Any §18.8-listed component (matrix, `-n 2`, `--dist=loadgroup`, `tryfirst=True`, grouping, retry policy, report/artifact paths, Allure generation, upload paths) | The specific re-validation §18.8 names for that component, via one real `workflow_dispatch` run at minimum — not the full 17-phase campaign, but real evidence, not assumption |
+| Browser/toolchain upgrade | Playwright, browser engine, Python, pytest/pytest-xdist version bump | §19.4's procedure |
+| Security/safety-sensitive change | `ACCOUNT_CREATION_EXECUTION_AUTHORIZED` gate, any secret wiring | Explicit re-authorization by whoever owns that decision, not just a technical re-test (§18.8's own existing framing, restated here for emphasis) |
+
+This is a **proportionality** rule, not a loophole: it exists so a one-line documentation fix doesn't trigger unnecessary re-execution, while anything touching a §18.8-listed mechanism still gets real evidence before being trusted.
+
+### 19.7 Final Operational Baseline & Maintenance Handoff
+
+- **Validated commit**: `f813defd30bfed7acc1690a881a1e41c4336c709` (the commit `full_cross_browser_validation` was added in; `HEAD == origin/main` at every phase's close through this addendum).
+- **Browser matrix**: `chromium`, `firefox`, `webkit`.
+- **Worker count**: `-n 2`.
+- **Scheduling mode**: `--dist=loadgroup` (`LoadGroupScheduling`).
+- **Retry policy**: `--reruns 2 --reruns-delay 3`.
+- **Report/artifact isolation model**: browser-scoped paths (`reports/{artifacts,allure-results,allure-report,html}/<browser>`), browser-scoped artifact names (`full-cross-browser-validation-<browser>-<run_id>`).
+- **Current known risks**: WebKit `TC-011` (intermittent, unresolved); Firefox teardown race (single historical occurrence, Phase 5 only); persistent-failure-after-retries (not proven/not observed) — all three preserved exactly as §18.5/STEP 19's final closure report classified them, unchanged by this addendum.
+- **Current evidence limitations**: real-CI behavior on a test that fails through all retries (never observed); pytest-html's internal structured schema (never fully parsed at the field level, content-presence only); real-CI reliability sample (5 triggers/15 leg-executions — meaningful, not exhaustive); sibling-job behavior (observed incidentally, outside this job's own direct scope).
+- **Documentation location**: this file, `docs/19-CI-CD.md` §18 (architecture/design/evidence) and §19 (this section — operational/maintenance).
+- **What future engineers MUST NOT change casually**: the 12 components listed in §18.8, without the matching re-validation from §18.8/§19.6.
+- **What evidence to preserve when a failure occurs**: the failing leg's raw Allure JSON, generated Allure report, HTML report, and (if present) screenshot/trace — download the artifact before any rerun that could produce a fresh, overwriting run; classify per §19.3 before concluding anything.
+- **Ownership**: not assigned to a named individual in any project document — whoever operates this repository's CI going forward inherits this baseline and the §18.8/§19.6 re-validation obligations; no owner is invented here.
+
+| Role | Name | Status | Date |
+|---|---|---|---|
+| Prepared By | AI Assistant (advisory, acting as Test Automation Engineer) | Complete — pending review | 2026-08-31 |
+| Reviewed By | QA Lead | Pending | — |
+| Approved By | QA Lead | Pending | — |
