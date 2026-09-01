@@ -19,7 +19,7 @@ A hybrid UI + API + E2E test automation framework for [automationexercise.com](h
 | Browser coverage | Chromium, Firefox, WebKit |
 | Test layers | UI, API, Hybrid (UI + API cross-validation) |
 | Total collected tests | 61 (33 business regression cases + 28 framework/infrastructure checks) |
-| CI cross-browser collection | 58 per browser leg (61 minus 3 all-engine infrastructure checks — see [Test Scope](#test-scope)) |
+| CI cross-browser collection | 58 per browser leg (61 minus 3 all-engine infrastructure checks — see [Test Architecture & Scope](#test-architecture--scope)) |
 | Parallel execution | `pytest-xdist`, 2 workers, `--dist=loadgroup` |
 | CI/CD | GitHub Actions — 5 jobs, including a real 3-browser matrix |
 | Reporting | Allure (raw + generated) and `pytest-html` |
@@ -28,15 +28,15 @@ A hybrid UI + API + E2E test automation framework for [automationexercise.com](h
 
 ---
 
-## What This Is
+## Overview
 
 This framework automates [Automation Exercise](https://automationexercise.com), a public demo e-commerce site used as a stable, real-world target for building and validating a production-shaped test automation system.
 
-**Why Playwright + Python**: Playwright provides a single, modern automation API across Chromium, Firefox, and WebKit with native auto-waiting, removing an entire class of flaky-selector problems; Python was chosen for its mature `pytest` ecosystem, straightforward `httpx`-based API testing, and easy integration with data tooling (`openpyxl`) and CI tooling.
+**Why Playwright + Python.** Playwright provides a single, modern automation API across Chromium, Firefox, and WebKit with native auto-waiting, removing an entire class of flaky-selector problems. Python was chosen for its mature `pytest` ecosystem, straightforward `httpx`-based API testing, and easy integration with data tooling (`openpyxl`) and CI tooling.
 
-**What "Hybrid" means here**: the framework runs three distinct test layers against the same target — pure UI tests (Playwright + Page Object Model), pure API tests (`httpx` clients), and a dedicated Hybrid test that cross-validates data rendered in the UI against the same data returned by the API — rather than treating UI and API testing as separate, disconnected efforts.
+**What "Hybrid" means here.** The framework runs three distinct test layers against the same target — pure UI tests (Playwright + Page Object Model), pure API tests (`httpx` clients), and a dedicated Hybrid test that cross-validates data rendered in the UI against the same data returned by the API — rather than treating UI and API testing as separate, disconnected efforts.
 
-**The engineering problem this project addresses**: most portfolio automation projects stop at "tests pass locally." This one was deliberately extended into a full CI/CD engineering exercise — designing a safe parallel execution model, proving it under real GitHub-hosted runners, isolating reporting and artifacts across concurrent browser legs, and documenting exactly what was proven versus what remains a known, accepted risk.
+**The engineering problem this project addresses.** Most portfolio automation projects stop at "tests pass locally." This one was deliberately extended into a full CI/CD engineering exercise — designing a safe parallel execution model, proving it under real GitHub-hosted runners, isolating reporting and artifacts across concurrent browser legs, and documenting exactly what was proven versus what remains a known, accepted risk.
 
 ---
 
@@ -45,14 +45,14 @@ This framework automates [Automation Exercise](https://automationexercise.com), 
 - **Evidence before assumptions.** Every classification of a test failure (framework defect vs. environmental instability vs. known browser-specific risk) was made from re-run evidence, not guessed from a single failure.
 - **Thin test orchestration, explicit separation of concerns.** Tests contain assertions and flow; Page Objects encapsulate UI interaction; API clients encapsulate HTTP interaction; neither layer leaks into the other.
 - **Explicit shared-state control.** The one genuine cross-test dependency in this suite — a disposable shared account used by several tests — is managed by an explicit, documented ordering/grouping mechanism, not implicit test-file ordering.
-- **Cross-browser isolation as a first-class requirement.** Reports and artifacts are scoped per browser by design, not merely by convention, and that isolation was independently verified at the content level, not assumed from directory names.
+- **Cross-browser isolation as a first-class requirement.** Reports and artifacts are scoped per browser by design, not merely by convention, and that isolation was independently verified at the content level.
 - **Failure evidence preservation.** Screenshots, Playwright traces, and structured Allure results are captured on genuine failure and are never discarded before analysis.
 - **Honest risk reporting.** A real, intermittent WebKit timing issue is documented, tracked, and left unresolved rather than hidden behind a retry.
 - **Controlled change and re-validation.** Every load-bearing CI/execution mechanism is documented with an explicit rule: change it only alongside the matching re-validation (see [`docs/19-CI-CD.md`](docs/19-CI-CD.md)).
 
 ---
 
-## What Makes This Framework Different
+## Key Engineering Decisions
 
 1. **A cross-browser CI matrix validated on real GitHub-hosted runners** — not just asserted to work locally.
 2. **Parallel execution with a provably safe shared-account lifecycle** — a session-scoped disposable account is created once, consumed by several dependent tests, and deleted last, guaranteed to stay on a single `pytest-xdist` worker via an explicit grouping mechanism.
@@ -83,98 +83,33 @@ This framework automates [Automation Exercise](https://automationexercise.com), 
 
 ---
 
-## Framework Capabilities
+## Architecture Overview
 
-### UI Automation
-Page Object Model under `src/pages/`, covering the home page, product listing/search/category/brand browsing, product details, cart, and signup/login flows. 19 UI-layer test nodes.
+![Architecture overview — Test Runner, UI/API/Hybrid test layers, framework components, test data, and the Application Under Test](docs/images/readme-architecture.svg)
 
-### API Automation
-Stateless `httpx`-based API clients under `src/api/` for authentication, products, and brands endpoints. 13 API-layer test nodes.
+The framework separates orchestration from implementation: **tests** contain assertions and flow only; **Page Objects** (`src/pages/`) encapsulate UI interaction; **API clients** (`src/api/`) encapsulate HTTP interaction; **fixtures** (`tests/conftest.py`) wire everything together, including the shared-account lifecycle; **test data** (`src/data/`) is fully decoupled from both. Neither layer leaks into the other — Page Objects and API clients contain no test assertions.
 
-### Hybrid Automation
-One dedicated test cross-validates product data rendered in the UI against the same data returned by the live API — proving the two layers agree, not just that each works independently.
-
-### Cross-Browser Testing
-Chromium, Firefox, and WebKit, both locally and in a dedicated GitHub Actions matrix job (`full_cross_browser_validation`).
-
-### Parallel Execution
-`pytest-xdist` with `-n 2` and `--dist=loadgroup`, using `LoadGroupScheduling` to keep grouped, state-dependent tests on a single worker.
-
-### Test Data / Fixtures
-`src/data/` (Excel-backed registration profiles, static product/category test data) and `tests/conftest.py` (Page Object fixtures, API client fixtures, settings, the shared-account lifecycle fixture).
-
-### Authentication / Shared State
-A disposable, session-scoped `shared_registered_account` fixture creates one real account on first use and deletes it after its last consumer — gated by an explicit `ACCOUNT_CREATION_EXECUTION_AUTHORIZED` environment flag so real account mutation never happens by accident.
-
-### Failure Handling
-Screenshot-on-failure, Playwright trace-on-failure, and bounded, CI-only reruns (`--reruns 2 --reruns-delay 3`).
-
-### Reporting
-Allure (raw JSON results + generated static HTML report) and `pytest-html`, both browser-scoped in the CI matrix.
-
-### CI/CD
-GitHub Actions, five jobs: `pr_main_regression`, `nightly_regression`, `release_validation`, `full_project_validation`, `full_cross_browser_validation`.
-
-### Artifact Management
-Browser- and run-scoped GitHub Actions artifacts (`full-cross-browser-validation-<browser>-<run_id>`), 14-day retention, independently verified free of cross-browser contamination.
+| Capability | Implementation |
+|---|---|
+| UI Automation | Page Object Model, `src/pages/` — 19 test nodes |
+| API Automation | Stateless `httpx` clients, `src/api/` — 13 test nodes |
+| Hybrid Automation | UI ↔ API cross-validation, `tests/hybrid/` — 1 test node |
+| Cross-Browser Execution | Chromium, Firefox, WebKit — local and CI matrix |
+| Parallel Execution | `pytest-xdist`, `-n 2`, `--dist=loadgroup` |
+| Shared-State Safety | Disposable account lifecycle, `xdist_group` + ordering hook |
+| Failure Handling | Screenshot + trace on failure, bounded CI retry |
+| Reporting | Allure (raw + generated) + `pytest-html` |
+| CI/CD | GitHub Actions, 5 jobs including a real 3-browser matrix |
+| Artifact Management | Browser- and run-scoped GitHub Actions artifacts |
 
 ---
 
-## Architecture
-
-```
-src/
-  pages/            Page Object Model
-    base_page.py            shared navigation/wait/assertion helpers
-    home_page.py
-    products_page.py
-    product_details_page.py
-    cart_page.py
-    signup_login_page.py
-  api/              API clients
-    base_api_client.py       shared httpx wrapper
-    auth_api_client.py
-    products_api_client.py
-    brands_api_client.py
-  config/
-    settings.py              centralized, environment-driven configuration
-  data/
-    users.py                 user-payload construction, dynamic-data modes
-    products.py               static product/category/brand test data
-    models.py
-    excel_reader.py          Excel-sourced registration-profile reader
-  utils/
-    data_generator.py        unique email/suffix generation
-    logger.py
-
-tests/
-  ui/                UI-layer tests (Playwright + Page Objects)
-  api/               API-layer tests (httpx clients)
-  hybrid/            Cross-layer UI + API consistency test
-  conftest.py        Fixtures, shared-account lifecycle, xdist grouping hook
-  test_setup_validation.py       Tier-1 environment/browser-launch checks
-  test_framework_foundation.py   Tier-1 framework-health checks (no network)
-
-.github/workflows/ci.yml   GitHub Actions CI/CD (5 jobs)
-docs/                      23 numbered engineering documents (vision → CI/CD → closure)
-reports/                   Generated, gitignored — Allure results/report, pytest-html, artifacts
-```
-
-**Separation of concerns**: `tests/` contains orchestration and assertions only; `src/pages/` and `src/api/` encapsulate UI and API interaction respectively and contain no test assertions; `src/data/` and `src/config/` hold test data and configuration; `src/utils/` holds generic, non-business helpers; `reports/` is entirely generated output (git-ignored); `docs/` is the project's own engineering record, from initial vision through final CI closure.
-
----
-
-## Test Architecture
+## Test Architecture & Scope
 
 - **UI layer** (`tests/ui/`) drives the browser through Page Objects; assertions live in the tests, not the Page Objects.
 - **API layer** (`tests/api/`) exercises the AUT's REST API directly via `httpx`, independent of any browser.
 - **Hybrid layer** (`tests/hybrid/`) reads the same underlying data through both the UI and the API in one test and asserts they agree.
 - **Fixtures** (`tests/conftest.py`) provide Page Object instances, API client instances, settings, and the shared-account lifecycle — kept in one place so tests remain declarative.
-- **The one real inter-test dependency**: 8 tests (across the UI, API, and account-lifecycle areas) consume a single disposable shared account. This dependency is not implicit test ordering — it is enforced by an explicit `pytest_collection_modifyitems` hook (see [Shared Account Lifecycle Safety](#shared-account-lifecycle-safety)).
-
----
-
-## Test Scope
 
 | Scope | Count |
 |---|---|
@@ -192,6 +127,8 @@ reports/                   Generated, gitignored — Allure results/report, pyte
 
 **CI collection differs from the repository total.** The `full_cross_browser_validation` job runs `-m "not requires_all_browsers"`, so each of its browser legs collects **58** tests, not 61 — the 3 excluded nodes need all three browser engines installed in a single job (each CI matrix leg installs only one), and that responsibility belongs exclusively to the `full_project_validation` job instead. No other job filters differently on this project's own terms; see [`docs/19-CI-CD.md §18.1`](docs/19-CI-CD.md) for the exact accounting.
 
+There is no configured code-coverage measurement tool in this repository — the figures above describe automation *scope* (how many tests exist and what they exercise), not measured source-code coverage.
+
 ---
 
 ## Cross-Browser Strategy
@@ -200,12 +137,12 @@ Chromium, Firefox, and WebKit are exercised both locally and in CI.
 
 - **Local**: `--browser=chromium` is the project's baked-in default. Selecting Firefox or WebKit on the command line requires `--override-ini` rather than a bare `--browser=firefox` flag — `pytest-playwright`'s `--browser` option is additive, so a bare flag accumulates with the baked-in default instead of replacing it, a real defect class this project found and fixed (see [Getting Started](#getting-started)).
 - **CI**: the `full_cross_browser_validation` job runs a real `strategy.matrix.browser: [chromium, firefox, webkit]` with `fail-fast: false`, so one browser's failure never cancels the other two.
-- **Isolation**: every browser leg writes to its own report and artifact paths (`reports/*/​<browser>/`) and uploads its own uniquely-named GitHub Actions artifact — independently verified to produce zero cross-browser contamination.
+- **Isolation**: every browser leg writes to its own report and artifact paths (`reports/*/<browser>/`) and uploads its own uniquely-named GitHub Actions artifact — independently verified to produce zero cross-browser contamination.
 - **Known risk**: `test_ae_ui_tc_011_view_all_products_and_product_details[webkit]` is an accepted, intermittent WebKit-specific compatibility/timing risk — it has both passed and failed across many independent executions, including real CI, and its root cause has not been conclusively proven. See [Known Risks & Limitations](#known-risks--limitations) and [`docs/19-CI-CD.md §18.5`](docs/19-CI-CD.md) for the full evidence trail.
 
 ---
 
-## Parallel Execution
+## Parallel Execution & Shared-Account Safety
 
 Parallel execution uses `pytest-xdist` with two flags that matter operationally, not just as CLI trivia:
 
@@ -220,11 +157,9 @@ created: 2/2 workers
 scheduling tests via LoadGroupScheduling
 ```
 
-**Why `tryfirst=True` matters**: `tests/conftest.py`'s `pytest_collection_modifyitems` hook applies the `xdist_group` marker to the 8 shared-account tests. `pytest-xdist`'s own internal hook (which encodes `xdist_group` into each test's worker-routing key) runs in the same process — without `@pytest.hookimpl(tryfirst=True)`, it could run *before* this project's own hook has added the marker, and would then see nothing to group. This was found empirically during this project's own validation work, not assumed defensively, and is documented in `tests/conftest.py`'s own hook docstring.
+**Why `tryfirst=True` matters.** `tests/conftest.py`'s `pytest_collection_modifyitems` hook applies the `xdist_group` marker to the 8 shared-account tests. `pytest-xdist`'s own internal hook (which encodes `xdist_group` into each test's worker-routing key) runs in the same process — without `@pytest.hookimpl(tryfirst=True)`, it could run *before* this project's own hook has added the marker, and would then see nothing to group. This was found empirically during this project's own validation work, not assumed defensively, and is documented in `tests/conftest.py`'s own hook docstring. This is process/worker scheduling and shared-state lifecycle control — not generic "thread safety."
 
----
-
-## Shared Account Lifecycle Safety
+### Shared-Account Lifecycle
 
 ```
 Creator
@@ -246,7 +181,7 @@ Deleter
 
 - **Why they must stay grouped**: the shared account is a session-scoped fixture, which under `pytest-xdist` means scoped *per worker process*, not per whole run. If these 8 tests were split across workers, each worker would independently create its own account, breaking the single-shared-account model.
 - **How xdist grouping protects them**: every dependent test is tagged `pytest.mark.xdist_group(name="shared_registered_account")`, forcing all 8 onto one worker — `pytest-xdist`'s own documented mechanism for exactly this case.
-- **How ordering is controlled**: a custom `pytest_collection_modifyitems` hook sorts by lifecycle phase (creator first, deleter last, everything else preserving its original relative order) — this is explicit, code-level ordering, not an assumption about file/definition order.
+- **How ordering is controlled**: a custom `pytest_collection_modifyitems` hook sorts by lifecycle phase (creator first, deleter last, everything else preserving its original relative order) — explicit, code-level ordering, not an assumption about file/definition order.
 - **If account creation fails**: dependent tests correctly fail or error at setup rather than silently running against a nonexistent account — this exact cascade was directly observed and verified during this project's own real-CI validation work (see [`docs/19-CI-CD.md §18.2`](docs/19-CI-CD.md)).
 - **Why this prevents unsafe execution**: no dependent test can ever run before the account exists or after it has been deleted, under either sequential or parallel execution.
 
@@ -254,60 +189,70 @@ Deleter
 
 ## CI/CD Architecture
 
-```
-Trigger
-  ↓
-GitHub Actions (.github/workflows/ci.yml)
-  ↓
-full_cross_browser_validation — Browser Matrix (fail-fast: false)
-  ├── Chromium
-  ├── Firefox
-  └── WebKit
-        ↓
-   pytest + xdist (-n 2, --dist=loadgroup)
-        ↓
-   Allure (raw + generated) / pytest-html
-        ↓
-   GitHub Actions artifact (per browser)
-```
+![CI/CD pipeline — trigger through GitHub Actions, the 3-browser matrix, pytest + xdist, Allure/HTML reporting, and browser-scoped artifacts](docs/images/readme-ci-pipeline.svg)
 
-Five jobs exist in `.github/workflows/ci.yml`, verified directly from the workflow file:
+### Workflow Model
+
+Five jobs exist in `.github/workflows/ci.yml`:
 
 | Job | Trigger | Purpose |
 |---|---|---|
-| `pr_main_regression` | `pull_request → main`, `push → main` | Chromium-only regression gate — the actual PR/merge gate |
+| `pr_main_regression` | `pull_request → main`, `push → main` | Chromium-only regression gate — **the actual PR/merge gate** |
 | `nightly_regression` | `schedule` (`0 2 * * *`) | Full regression including account-mutating cases, Chromium only — an unattended environment-stability canary |
 | `release_validation` | `workflow_dispatch` | Chromium full regression + a curated Firefox/WebKit cross-browser subset |
 | `full_project_validation` | `workflow_dispatch` | All 61 collected nodes, no marker filter, single-browser execution — the only job that satisfies the all-3-engine infrastructure check |
 | `full_cross_browser_validation` | `workflow_dispatch` | The full cross-browser matrix — 58 tests × 3 browsers × 2 xdist workers |
 
-`full_cross_browser_validation` is manually triggered (`workflow_dispatch`) and is not wired into the automatic PR/merge gate — a deliberate scope boundary from this project's own design phase, not an oversight.
+`full_cross_browser_validation` is **manually triggered and not wired into the automatic PR/merge gate** — a deliberate scope boundary from this project's own design phase, not an oversight. Manual dispatch: **Actions → CI → Run workflow** in the GitHub UI, or `gh workflow run CI --ref main` via the GitHub CLI. All three `workflow_dispatch`-triggered jobs fire together from a single manual dispatch.
+
+### Cross-Browser Matrix
+
+`strategy.matrix.browser: [chromium, firefox, webkit]`, `fail-fast: false` — each leg installs exactly one browser engine, runs on its own GitHub-hosted runner, and completes independently of the other two.
+
+### CI Artifacts
+
+| Aspect | Value |
+|---|---|
+| Naming | `full-cross-browser-validation-<browser>-<run_id>` |
+| Report/artifact paths | `reports/{artifacts,allure-results,allure-report,html}/<browser>` |
+| Retention | 14 days |
+| Isolation | Independently verified — zero cross-browser contamination across every checked evidence type |
 
 ---
 
 ## Reporting & Observability
 
-### Allure
+### Allure Reporting
+
+![Real Allure dashboard for this project — 61 test cases, 100% pass rate, suite breakdown by tests / tests.ui / tests.api / tests.hybrid](docs/images/readme-allure-report.png)
+
+> Real Allure execution evidence from this project (a preserved full-suite run), showing browser/suite classification, execution status, and timing — not a mock-up.
+
 Raw per-test JSON results are written to `reports/allure-results/`; a static HTML report is generated into `reports/allure-report/`. Result accounting (passed/failed/broken/skipped) is independently reconciled against the pytest console output in this project's own validation history, including under a real retry event — a retried test's original failed attempt and its eventual passed attempt are both recorded as raw results, and the generated report correctly collapses them into one logical test in its final state.
 
 ### pytest-html
+
+![Real pytest-html report for this project — 61 tests, 0 failed, 61 passed, with Test Case ID column and shared-account-tagged node IDs](docs/images/readme-pytest-html.png)
+
+> Real pytest-html evidence from this project — a clean 61/61 parallel run, with each row linked to its `AE-*-TC-*` Test Case ID.
+
 A self-contained HTML report (`reports/html/report.html` locally; `reports/html/<browser>/report.html` in the CI matrix), verified to contain real, browser-specific test content with no cross-browser leakage.
 
 ### Failure Evidence
+
 - **Screenshot**: captured only on failure (`--screenshot=only-on-failure`).
 - **Trace**: retained only for tests that end up failing (`--tracing=retain-on-failure`) — a test that fails and later passes on retry still leaves its original failure's trace behind.
+- **Video**: **intentionally disabled by design** — not configured anywhere in this project, and its absence is not a defect.
 
-### Video
-**Intentionally disabled by design** — not configured anywhere in this project, and its absence is not a defect.
+### Artifact Isolation
 
----
+Every report type — Allure raw results, generated Allure report, pytest-html, and (on failure) screenshots/traces — is written under a browser-named subdirectory. Every CI artifact name includes `${{ github.run_id }}`, so no two runs' artifacts can ever collide. Isolation was independently checked across every browser pair and every evidence type (Allure JSON, generated report contents, HTML content, artifact directory structure) — zero cross-browser contamination found.
 
-## Artifact Strategy
+### Where to Find Reports & Artifacts
 
-- **Naming**: `full-cross-browser-validation-<browser>-<run_id>` for the cross-browser matrix job (e.g. `full-cross-browser-validation-webkit-33390201173`); every other job uses its own equally distinct, job-qualified name.
-- **Browser scoping**: every report type — Allure raw results, generated Allure report, pytest-html, and (on failure) screenshots/traces — is written under a browser-named subdirectory (`reports/*/​<browser>/`).
-- **Run ID usage**: every CI artifact name includes `${{ github.run_id }}`, so no two runs' artifacts can ever collide.
-- **Isolation verification**: independently checked across every browser pair, every evidence type (Allure JSON, generated report contents, HTML content, artifact directory structure) — zero cross-browser contamination found.
+**Locally**, after any run: `reports/html/report.html` (pytest-html), `reports/allure-results/` (raw Allure — generate a viewable report with `allure generate`/`allure serve`), `reports/artifacts/` (screenshots/traces for any failed test).
+
+**In CI**: open the relevant workflow run under the repository's **Actions** tab; each job uploads its own evidence as a named artifact, downloadable directly from the run's summary page for 14 days.
 
 ---
 
@@ -316,8 +261,20 @@ A self-contained HTML report (`reports/html/report.html` locally; `reports/html/
 CI-only, bounded retry: `--reruns 2 --reruns-delay 3`. (Local runs remain retry-free by default — this is a CI-specific policy, not a project-wide default.)
 
 - **Why bounded retry exists**: to absorb transient, environment-layer instability (network resets, timeouts against the shared public AUT) without masking a persistent defect behind unlimited retries.
-- **Retry does not prove a defect is fixed.** A real example from this project's own validation history: `test_ae_ui_tc_011_view_all_products_and_product_details[webkit]` failed on its first attempt in a real CI run, was retried, and passed. The failure's evidence — a real screenshot and a valid Playwright trace — was preserved and uploaded regardless of the eventual pass. The underlying intermittent risk (see [Known Risks](#known-risks--limitations)) is not considered resolved by that pass.
+- **Retry does not prove a defect is fixed.** A real example from this project's own validation history:
+
+  ```
+  test_ae_ui_tc_011_view_all_products_and_product_details[webkit]
+      FAILED  (first attempt, real CI)
+         ↓
+      RETRY
+         ↓
+      PASSED  (second attempt)
+  ```
+
+  The failure's evidence — a real screenshot and a valid Playwright trace — was preserved and uploaded regardless of the eventual pass. The underlying intermittent risk (see [Known Risks & Limitations](#known-risks--limitations)) is **not** considered resolved by that pass.
 - **Evidence preservation**: failure screenshots and traces are captured before any retry attempt and are never overwritten by a subsequent success.
+- **What has not been observed**: a test failing through *all* configured retry attempts, causing a genuine job failure. This scenario has never naturally occurred in this project's CI history and is not claimed to be validated.
 
 ---
 
@@ -354,7 +311,6 @@ No claim of "no known issues," "100% stable," or "fully reliable" is made anywhe
 
 | Component | Validated value |
 |---|---|
-| Validated commit | `f813defd30bfed7acc1690a881a1e41c4336c709` |
 | Browser matrix | `chromium`, `firefox`, `webkit` |
 | Worker count | `-n 2` |
 | Scheduling mode | `--dist=loadgroup` (`LoadGroupScheduling`) |
@@ -378,25 +334,25 @@ The full rationale, per-component detail, and upgrade procedure are documented i
 
 ---
 
-## Project Structure
+## Repository Structure
 
 ```
 playwright-python-hybrid-framework/
 ├── .github/workflows/ci.yml
 ├── docs/                         23 numbered engineering documents
 ├── src/
-│   ├── api/
-│   ├── config/
-│   ├── data/
-│   ├── pages/
-│   └── utils/
+│   ├── api/            API clients (auth, products, brands)
+│   ├── config/          settings.py — centralized configuration
+│   ├── data/            users, products, Excel-sourced profiles
+│   ├── pages/           Page Object Model
+│   └── utils/            data generation, logging
 ├── tests/
-│   ├── api/
-│   ├── hybrid/
-│   ├── ui/
-│   ├── conftest.py
-│   ├── test_setup_validation.py
-│   └── test_framework_foundation.py
+│   ├── api/              API-layer tests
+│   ├── hybrid/            Cross-layer UI + API consistency test
+│   ├── ui/                UI-layer tests
+│   ├── conftest.py        Fixtures, shared-account lifecycle, xdist grouping hook
+│   ├── test_setup_validation.py       Tier-1 environment/browser-launch checks
+│   └── test_framework_foundation.py   Tier-1 framework-health checks (no network)
 ├── reports/                      generated, git-ignored
 ├── Dockerfile
 ├── Jenkinsfile
@@ -420,7 +376,7 @@ python -m venv .venv
 # 3. Activate it
 # Windows:
 .venv\Scripts\activate
-# macOS/Linux:
+# macOS/Linux/Git Bash:
 source .venv/bin/activate
 
 # 4. Install dependencies (this project has no [build-system] table,
@@ -435,26 +391,22 @@ python -m playwright install --with-deps chromium firefox webkit
 # 6. Run the full suite (Chromium, the project default)
 python -m pytest -v
 
-# 7. Run a specific browser (see "Browser Execution Examples" below)
+# 7. Run in parallel, using the project's own xdist configuration
+python -m pytest -n 2
 
-# 8. Run in parallel, using the project's own xdist configuration
-python -m pytest -n 2 --dist=loadgroup
-
-# 9. View the Allure report
+# 8. View the Allure report
 allure serve reports/allure-results
 # or:
 allure generate reports/allure-results --clean -o reports/allure-report
 # then open reports/allure-report/index.html
 
-# 10. View the pytest-html report
+# 9. View the pytest-html report
 # open reports/html/report.html directly in a browser (self-contained)
 ```
 
-> **Note**: `python -m pytest` is used deliberately, not a bare `pytest` — this project has no packaging metadata, so `src`'s absolute imports only resolve when the current directory is on `sys.path`, which `python -m` guarantees and a bare console-script entry point does not.
+> `python -m pytest` is used deliberately, not a bare `pytest` — this project has no packaging metadata, so `src`'s absolute imports only resolve when the current directory is on `sys.path`, which `python -m` guarantees and a bare console-script entry point does not. The commands above assume a POSIX-compatible shell (Git Bash, WSL, macOS, or Linux); native Windows PowerShell users should adapt step 4 accordingly or use Git Bash.
 
----
-
-## Browser Execution Examples
+### Browser-Specific Execution
 
 ```bash
 # Chromium — the baked-in default, no override needed
@@ -474,31 +426,7 @@ CI applies this same `--override-ini` mechanism per matrix leg, additionally rec
 
 ---
 
-## CI Execution
-
-| Trigger | What runs |
-|---|---|
-| Opening/updating a pull request into `main` | `pr_main_regression` |
-| A push to `main` | `pr_main_regression` |
-| Daily schedule (`0 2 * * *`) | `nightly_regression` |
-| Manual dispatch (`workflow_dispatch`) | `release_validation`, `full_project_validation`, and `full_cross_browser_validation` — **all three fire together** from one manual dispatch |
-
-Manual dispatch: **Actions → CI → Run workflow** in the GitHub UI, or `gh workflow run CI --ref main` via the GitHub CLI.
-
----
-
-## Reports & Artifacts
-
-**Locally**, after any run:
-- `reports/html/report.html` — self-contained pytest-html report.
-- `reports/allure-results/` — raw Allure results (generate a viewable report with `allure generate`/`allure serve` as shown above).
-- `reports/artifacts/` — screenshots and Playwright traces for any failed test.
-
-**In CI**, open the relevant workflow run under the repository's **Actions** tab; each job uploads its own evidence as a named artifact (see [Artifact Strategy](#artifact-strategy)), downloadable directly from the run's summary page for 14 days.
-
----
-
-## Documentation
+## Project Documentation
 
 | Document | Covers |
 |---|---|
@@ -515,7 +443,7 @@ The full 23-document set (`docs/01`–`docs/23`) records this project from initi
 
 ---
 
-## Portfolio Highlights
+## Engineering Highlights
 
 This project demonstrates:
 
@@ -527,22 +455,6 @@ This project demonstrates:
 - Artifact isolation engineering across concurrently running CI legs
 - Evidence-driven, honest risk management instead of hidden flakiness
 - A formal, documented change-control and re-validation process
-
----
-
-## Interview Talking Points
-
-- Why Playwright over Selenium for this project?
-- Why pytest over unittest?
-- Why a Hybrid (UI + API) layer instead of UI-only?
-- Why `pytest-xdist` and `--dist=loadgroup` specifically?
-- Why does `LoadGroupScheduling` matter here?
-- Why does the shared account need `xdist_group` and `tryfirst=True`?
-- Why are reports and artifacts browser-scoped?
-- Why is retry bounded (2 reruns) rather than unlimited, and why doesn't a retry-pass prove a defect is fixed?
-- How was the CI matrix actually validated — what evidence, not just what YAML?
-- How was failure evidence (screenshot, trace, Allure result) proven to work under a real retry?
-- What are the project's known risks, and why weren't they hidden or "fixed" without root-cause evidence?
 
 ---
 
@@ -564,3 +476,9 @@ GitHub: [@SharifulIslamSabuj](https://github.com/SharifulIslamSabuj)
 ## License
 
 No license file is currently present in this repository. All rights are reserved by the author unless and until a license is explicitly added.
+
+---
+
+## Final Project Summary
+
+This repository is a Playwright + Python hybrid automation framework combining UI, API, and cross-layer Hybrid testing against a real target application, engineered with a Page Object Model and stateless API client layer, and executed across Chromium, Firefox, and WebKit both locally and through a real GitHub Actions matrix. Parallel execution via `pytest-xdist` is made safe through an explicit shared-account lifecycle (creator → dependents → deleter) enforced by a custom collection hook and `xdist_group` scheduling. Failures are handled through bounded, evidence-preserving retries, with structured Allure and `pytest-html` reporting isolated per browser and packaged into uniquely-named, verifiably uncontaminated CI artifacts. The architecture was validated across five independent real GitHub Actions runs, including a genuine failure-and-recovery event whose full evidence chain was independently confirmed. Two intermittent risks and a small set of evidence limitations remain openly documented rather than hidden, and the project is governed going forward by a formal change-and-re-validation policy — closed as an operational baseline, not an active work in progress.

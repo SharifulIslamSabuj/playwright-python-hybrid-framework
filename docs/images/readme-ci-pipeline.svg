@@ -1,0 +1,80 @@
+<svg viewBox="0 0 920 900" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="920" height="900" fill="#FFFFFF"/>
+
+  <!-- Trigger (blue) -->
+  <rect x="335" y="20" width="250" height="52" rx="8" fill="#EFF6FF" stroke="#2563EB" stroke-width="1.5"/>
+  <text x="460" y="42" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1E3A8A">workflow_dispatch</text>
+  <text x="460" y="59" text-anchor="middle" font-size="10.5" fill="#1E40AF">manual trigger</text>
+  <line x1="460" y1="72" x2="460" y2="94" stroke="#94A3B8" stroke-width="2" marker-end="url(#arrow2)"/>
+
+  <!-- GitHub Actions (blue) -->
+  <rect x="310" y="94" width="300" height="52" rx="8" fill="#EFF6FF" stroke="#2563EB" stroke-width="1.5"/>
+  <text x="460" y="116" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1E3A8A">GitHub Actions</text>
+  <text x="460" y="133" text-anchor="middle" font-size="10.5" fill="#1E40AF">.github/workflows/ci.yml</text>
+  <line x1="460" y1="146" x2="460" y2="168" stroke="#94A3B8" stroke-width="2" marker-end="url(#arrow2)"/>
+
+  <!-- Job: full_cross_browser_validation (blue) -->
+  <rect x="230" y="168" width="460" height="60" rx="8" fill="#EFF6FF" stroke="#2563EB" stroke-width="1.5"/>
+  <text x="460" y="192" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1E3A8A">full_cross_browser_validation</text>
+  <text x="460" y="210" text-anchor="middle" font-size="10.5" fill="#1E40AF">strategy.matrix.browser  ·  fail-fast: false</text>
+  <line x1="460" y1="228" x2="460" y2="250" stroke="#94A3B8" stroke-width="2" marker-end="url(#arrow2)"/>
+
+  <!-- 3 browser legs (green) -->
+  <text x="460" y="266" text-anchor="middle" font-size="12" font-weight="600" fill="#166534">3-BROWSER MATRIX (independent legs)</text>
+  <rect x="55"  y="276" width="250" height="56" rx="8" fill="#F0FDF4" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="180" y="299" text-anchor="middle" font-size="13.5" font-weight="600" fill="#14532D">Chromium</text>
+  <text x="180" y="317" text-anchor="middle" font-size="10.5" fill="#166534">--browser=chromium</text>
+
+  <rect x="335" y="276" width="250" height="56" rx="8" fill="#F0FDF4" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="460" y="299" text-anchor="middle" font-size="13.5" font-weight="600" fill="#14532D">Firefox</text>
+  <text x="460" y="317" text-anchor="middle" font-size="10.5" fill="#166534">--browser=firefox</text>
+
+  <rect x="615" y="276" width="250" height="56" rx="8" fill="#F0FDF4" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="740" y="299" text-anchor="middle" font-size="13.5" font-weight="600" fill="#14532D">WebKit</text>
+  <text x="740" y="317" text-anchor="middle" font-size="10.5" fill="#166534">--browser=webkit</text>
+
+  <line x1="180" y1="332" x2="180" y2="348" stroke="#94A3B8" stroke-width="1.5"/>
+  <line x1="460" y1="332" x2="460" y2="348" stroke="#94A3B8" stroke-width="1.5"/>
+  <line x1="740" y1="332" x2="740" y2="348" stroke="#94A3B8" stroke-width="1.5"/>
+  <line x1="180" y1="348" x2="740" y2="348" stroke="#94A3B8" stroke-width="1.5"/>
+  <line x1="460" y1="348" x2="460" y2="370" stroke="#94A3B8" stroke-width="2" marker-end="url(#arrow2)"/>
+
+  <!-- pytest + xdist (purple) -->
+  <rect x="230" y="370" width="460" height="72" rx="8" fill="#F5F3FF" stroke="#7C3AED" stroke-width="1.5"/>
+  <text x="460" y="393" text-anchor="middle" font-size="13.5" font-weight="600" fill="#4C1D95">pytest + pytest-xdist</text>
+  <text x="460" y="411" text-anchor="middle" font-size="10.5" fill="#5B21B6">-n 2  ·  --dist=loadgroup  ·  LoadGroupScheduling</text>
+  <text x="460" y="428" text-anchor="middle" font-size="10.5" fill="#5B21B6">--reruns 2 --reruns-delay 3 (bounded retry)</text>
+  <line x1="460" y1="442" x2="460" y2="464" stroke="#94A3B8" stroke-width="2" marker-end="url(#arrow2)"/>
+
+  <!-- Allure / HTML (purple) -->
+  <rect x="230" y="464" width="460" height="60" rx="8" fill="#F5F3FF" stroke="#7C3AED" stroke-width="1.5"/>
+  <text x="460" y="488" text-anchor="middle" font-size="13.5" font-weight="600" fill="#4C1D95">Allure  +  pytest-html</text>
+  <text x="460" y="506" text-anchor="middle" font-size="10.5" fill="#5B21B6">raw results · generated report · self-contained HTML</text>
+  <line x1="460" y1="524" x2="460" y2="546" stroke="#94A3B8" stroke-width="2" marker-end="url(#arrow2)"/>
+
+  <!-- Artifacts (yellow) -->
+  <rect x="230" y="546" width="460" height="72" rx="8" fill="#FEFCE8" stroke="#CA8A04" stroke-width="1.5"/>
+  <text x="460" y="570" text-anchor="middle" font-size="13.5" font-weight="600" fill="#854D0E">Browser-scoped CI artifacts</text>
+  <text x="460" y="588" text-anchor="middle" font-size="10.5" fill="#854D0E">full-cross-browser-validation-&lt;browser&gt;-&lt;run_id&gt;</text>
+  <text x="460" y="605" text-anchor="middle" font-size="10.5" fill="#854D0E">14-day retention · zero cross-browser contamination (verified)</text>
+
+  <!-- Note box: not the PR/merge gate -->
+  <rect x="20" y="650" width="880" height="130" rx="8" fill="#FAFAFA" stroke="#D1D5DB" stroke-width="1"/>
+  <text x="40" y="676" font-size="12.5" font-weight="600" fill="#374151">Scope note</text>
+  <text x="40" y="700" font-size="11.5" fill="#4B5563">full_cross_browser_validation is manually triggered (workflow_dispatch) and is NOT the automatic PR/merge gate.</text>
+  <text x="40" y="720" font-size="11.5" fill="#4B5563">The PR/merge gate is pr_main_regression (Chromium-only). nightly_regression runs on schedule as an environment-stability</text>
+  <text x="40" y="740" font-size="11.5" fill="#4B5563">canary. release_validation and full_project_validation are separate, also-manual jobs — see &#171;CI/CD Architecture&#187; for the full job table.</text>
+
+  <!-- Legend -->
+  <text x="40" y="810" font-size="11" fill="#6B7280">Legend:</text>
+  <rect x="95" y="799" width="14" height="14" rx="3" fill="#EFF6FF" stroke="#2563EB"/><text x="114" y="810" font-size="11" fill="#374151">Trigger / orchestration</text>
+  <rect x="255" y="799" width="14" height="14" rx="3" fill="#F0FDF4" stroke="#16A34A"/><text x="274" y="810" font-size="11" fill="#374151">Browser matrix legs</text>
+  <rect x="415" y="799" width="14" height="14" rx="3" fill="#F5F3FF" stroke="#7C3AED"/><text x="434" y="810" font-size="11" fill="#374151">Execution &amp; reporting</text>
+  <rect x="590" y="799" width="14" height="14" rx="3" fill="#FEFCE8" stroke="#CA8A04"/><text x="609" y="810" font-size="11" fill="#374151">Artifacts</text>
+
+  <defs>
+    <marker id="arrow2" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#94A3B8"/>
+    </marker>
+  </defs>
+</svg>
